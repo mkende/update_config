@@ -1,0 +1,97 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+sub print_usage {
+  print "$0: Automatic updating of a linux configuration\n";
+  exit 0;
+}
+
+sub load_module {
+  my ($m, @args) = @_;
+  my $try_load = sub {
+    eval "require $m" or return 0;
+    $m->import(@args);
+    1;
+  };
+  return 1 if $try_load->();
+  system 'cpan -i $m' and die "Cannot install module '$m'.\n";
+  $try_load->() or die "Cannot load module '$m'.\n";
+}
+
+BEGIN {
+  print_usage if grep { m/^--?h(elp)?$/ } @ARGV;
+  load_module 'Data::Section::Simple', 'get_data_section';
+  load_module 'File::Basename', 'dirname';
+  load_module 'File::Path', 'make_path';
+  load_module 'File::Spec::Functions', 'catfile';
+}
+
+use constant START_MARKER => "###AUTO-CONFIG START###\n";
+use constant END_MARKER   => "###AUTO-CONFIG END###\n";
+
+## contains(file_name, regex)
+## Returns true if one of the line of the named file matches the given regex.
+# sub contains {
+#   my ($file, $re) = @_;
+#   open(my $fh, '<', $file) or die "Cannot open '$file': $!";
+#   while (my $l = <$fh>) {
+#     return 1 if $l =~ m/$re/;
+#   }
+#   return 0;
+# }
+
+sub write_content {
+  my ($file, $before, $after, $content) = @_;
+  open (my $fh, '>', $file) or die "Cannot open '$file' for write: $!\n";
+  print $fh $before, START_MARKER, $content, END_MARKER, $after;
+  close $fh or die "Error writing '$file': $!.\n";
+  print "$file updated.\n";
+}
+
+# Verifies that file contains the given content between the start and end
+# markers. Otherwise update the content of the file so that it does.
+sub test_and_update_content {
+  my ($file, $content) = @_;
+  my $dir = dirname($file);
+  if (not -e $dir) {
+    make_path $dir or die "Cannot create directory '$dir': $!.\n";
+  }
+  if (not -e $file) {
+    write_content($file, '', '', $content);
+    return;
+  }
+  open (my $fh, '<', $file) or die "Cannot open '$file' for read: $!.\n";
+  my $status = 'before';
+  my ($before_content, $old_content, $after_content) = ('', '', '');
+  while (my $l = <$fh>) {
+    if ($status eq 'before' && $l ne START_MARKER) {
+      $before_content .= $l;
+    } elsif ($status eq 'before') {
+      $status = 'inside';
+    } elsif ($status eq 'inside' && $l ne END_MARKER) {
+      $old_content .= $l;
+    } elsif ($status eq 'inside') {
+      $status = 'after';
+    } else {
+      $after_content .= $l;
+    }
+  }
+  close $fh or die "Unexpected error closing '$file': $!.\n";
+  die "Missing closing tag.\n" if $status eq 'inside';
+  if ($old_content eq $content) {
+    print "$file is up-to-date.\n";
+    return;
+  }
+  write_content($file, $before_content, $after_content, $content);
+}
+
+my $home_dir=`echo -n ~`;
+my $config_files = get_data_section();
+while (my ($file, $content) = each %{$config_files}) {
+  $content =~ s/\n+\n$/\n/;
+  test_and_update_content(catfile($home_dir, $file), $content);
+}
+
+__DATA__
