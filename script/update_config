@@ -16,7 +16,7 @@ sub load_module {
     1;
   };
   return 1 if $try_load->();
-  system 'cpan -i $m' and die "Cannot install module '$m'.\n";
+  system "cpan -i $m" and die "Cannot install module '$m'.\n";
   $try_load->() or die "Cannot load module '$m'.\n";
 }
 
