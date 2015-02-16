@@ -20,7 +20,7 @@ sub load_module {
   $try_load->() or die "Cannot load module '$m'.\n";
 }
 
-BEGIN {
+INIT {
   print_usage if grep { m/^--?h(elp)?$/ } @ARGV;
   load_module 'Data::Section::Simple', 'get_data_section';
   load_module 'File::Basename', 'dirname';
