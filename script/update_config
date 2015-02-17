@@ -42,31 +42,28 @@ use constant END_MARKER   => "###AUTO-CONFIG END###\n";
 #   return 0;
 # }
 
-sub write_content {
-  my ($file, $content) = @_;
-  open (my $fh, '>', $file) or die "Cannot open '$file' for write: $!\n";
-  print $fh $content;
-  close $fh or die "Error writing '$file': $!.\n";
-  print "$file updated.\n";
+sub parse_file_name {
+  my ($raw_path) = @_;
+  my @file_part = split ',', $raw_path;
+  my $mode = @file_part == 1 ? 'file' : 'pipe';
+  die "Invalid file specification: '$raw_path'." if @file_part < 1 || @file_part > 2;
+  if (@file_part == 1) {
+    my $home_dir=`echo -n ~`;
+    my $path = catfile($home_dir, $file_part[0]);
+    return ('file', $path, $path);
+  } else {
+    return ('pipe', @file_part);
+  }
 }
 
 # Verifies that file contains the given content between the start and end
 # markers. Otherwise update the content of the file so that it does.
-sub test_and_update_content {
-  my ($file, $content, $comment) = @_;
-  my $start_marker = START_MARKER;
-  $start_marker =~ s/#/$comment/g if $comment;
-  my $end_marker = END_MARKER;
-  $end_marker =~ s/#/$comment/g if $comment;
-  my $dir = dirname($file);
-  if (not -e $dir) {
-    make_path $dir or die "Cannot create directory '$dir': $!.\n";
+sub read_content {
+  my ($mode, $file, $start_marker, $end_marker) = @_;
+  if ($mode eq 'file' and not -e $file) {
+    return ('', '', '');
   }
-  if (not -e $file) {
-    write_content($file, $start_marker.$content.$end_marker);
-    return;
-  }
-  open (my $fh, '<', $file) or die "Cannot open '$file' for read: $!.\n";
+  open (my $fh, ($mode eq 'file' ? '<' : '-|'), $file) or die "Cannot open '$file' for read: $!.\n";
   my $status = 'before';
   my ($before_content, $old_content, $after_content) = ('', '', '');
   while (my $l = <$fh>) {
@@ -82,21 +79,43 @@ sub test_and_update_content {
       $after_content .= $l;
     }
   }
-  close $fh or die "Unexpected error closing '$file': $!.\n";
   die "Missing closing tag in '$file'.\n" if $status eq 'inside';
-  if ($old_content eq $content) {
-    print "$file is up-to-date.\n";
-    return;
-  }
-  write_content($file, $before_content.$start_marker.$content.$end_marker.$after_content);
+  close $fh or die "Unexpected error closing '$file': $!.\n";
+  return ($before_content, $old_content, $after_content);
 }
 
-my $home_dir=`echo -n ~`;
+sub write_content {
+  my ($mode, $file, $content) = @_;
+  if ($mode eq 'file') {
+    my $dir = dirname($file);
+    if (not -e $dir) {
+      make_path $dir or die "Cannot create directory '$dir': $!.\n";
+    }
+  }
+  open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
+  print $fh $content;
+  close $fh or die "Error writing '$file': $!.\n";
+  print "$file updated.\n";
+}
+
 my $config_files = get_data_section();
 while (my ($file, $content) = each %{$config_files}) {
   $content =~ s/\n+\n$/\n/;
   $content =~ s/^COMMENTS CHAR (.)\n//;
-  test_and_update_content(catfile($home_dir, $file), $content, $1);
+  my $comment_char = $1;
+  my $start_marker = START_MARKER;
+  my $end_marker = END_MARKER;
+  if ($comment_char) {
+    $start_marker =~ s/#/$comment_char/g;
+    $end_marker =~ s/#/$comment_char/g;
+  }
+  my ($mode, $in_path, $out_path) = parse_file_name($file);
+  my ($before, $old_content, $after) = read_content($mode, $in_path, $start_marker, $end_marker);
+  if ($old_content eq $content) {
+    print "$out_path is up-to-date.\n";
+  } else {
+    write_content($mode, $out_path, $before.$start_marker.$content.$end_marker.$after);
+  }
 }
 
 __DATA__
