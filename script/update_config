@@ -38,13 +38,8 @@ use constant START_MARKER => "###AUTO-CONFIG START###\n";
 use constant END_MARKER   => "###AUTO-CONFIG END###\n";
 use constant DEFAULT_COMMENTS_CHAR => '#';
 
-# Short options can be bundled, but long options are accepted even with
-# a single '-' and take precedance over short one.
-Getopt::Long::Configure('bundling_override');
-# Allow short option to be treated case-insensitively (as long options).
-Getopt::Long::Configure('ignore_case_always');
 my %flags;
-GetOptions(\%flags, 'silent', 'diff|d', 'help|h', 'test|t') or print_usage(0);
+GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list') or print_usage(0);
 print_usage(1) if $flags{help};
 print_usage(0) if @ARGV;
 
@@ -149,6 +144,10 @@ my $config_files = get_data_section();
 while (my ($file, $content) = each %{$config_files}) {
   my %conf = parse_file_conf($content);
   my ($mode, $in_path, $out_path) = parse_file_name($file);
+  if ($flags{list}) {
+    print "$in_path\n";
+    next;
+  }
   my ($before, $old_content, $after) = read_content($mode, $in_path, $conf{start_marker}, $conf{end_marker});
   if ($old_content eq $conf{content}) {
     print "Nothing to do for: $out_path\n" unless $flags{silent};
