@@ -3,11 +3,6 @@
 use strict;
 use warnings;
 
-sub print_usage {
-  print "$0: Automatic updating of a linux configuration\n";
-  exit 0;
-}
-
 sub load_module {
   my ($m, @args) = @_;
   my $try_load = sub {
@@ -21,17 +16,37 @@ sub load_module {
 }
 
 INIT {
-  print_usage if grep { m/^--?h(elp)?$/ } @ARGV;
   load_module 'Data::Section::Simple', 'get_data_section';
   load_module 'File::Basename', 'dirname';
   load_module 'File::Path', 'make_path';
   load_module 'File::Spec::Functions', 'catfile';
+  load_module 'Getopt::Long', 'GetOptions';
+  load_module 'Pod::Usage', 'pod2usage';
   load_module 'Text::Diff', 'diff';
+}
+
+sub print_usage {
+  my ($is_help) = @_;
+  pod2usage( { -msg => "update_config: Automatic updates of a linux configuration.\n",
+               -verbose => $is_help ? 1 : 0,
+               -exitval => $is_help ? 0 : 2,
+               -output => $is_help ? \*STDOUT : \*STDERR,
+             });
 }
 
 use constant START_MARKER => "###AUTO-CONFIG START###\n";
 use constant END_MARKER   => "###AUTO-CONFIG END###\n";
 use constant DEFAULT_COMMENTS_CHAR => '#';
+
+# Short options can be bundled, but long options are accepted even with
+# a single '-' and take precedance over short one.
+Getopt::Long::Configure('bundling_override');
+# Allow short option to be treated case-insensitively (as long options).
+Getopt::Long::Configure('ignore_case_always');
+my %flags;
+GetOptions(\%flags, 'silent|s', 'diff|d', 'help|h', 'test|t') or print_usage(0);
+print_usage(1) if $flags{help};
+print_usage(0) if @ARGV;
 
 ## contains(file_name, regex)
 ## Returns true if one of the line of the named file matches the given regex.
@@ -44,6 +59,10 @@ use constant DEFAULT_COMMENTS_CHAR => '#';
 #   return 0;
 # }
 
+# parse_file_name($file_name)
+# Returns a tuple (mode, input_spec, output_spec) where mode is one
+# of 'file' ou 'pipe' specifying if the input and output spec will
+# be normal file name or a commands that should be executed.
 sub parse_file_name {
   my ($raw_path) = @_;
   my @file_part = split ',', $raw_path;
@@ -94,10 +113,12 @@ sub write_content {
       make_path $dir or die "Cannot create directory '$dir': $!.\n";
     }
   }
-  open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
-  print $fh $content;
-  close $fh or die "Error writing '$file': $!.\n";
-  print "$file updated.\n";
+  if (not $flags{test}) {
+    open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
+    print $fh $content;
+    close $fh or die "Error writing '$file': $!.\n";
+  }
+  print "$file updated.\n" unless $flags{silent};
 }
 
 sub parse_file_conf {
@@ -124,10 +145,12 @@ while (my ($file, $content) = each %{$config_files}) {
   my ($mode, $in_path, $out_path) = parse_file_name($file);
   my ($before, $old_content, $after) = read_content($mode, $in_path, $conf{start_marker}, $conf{end_marker});
   if ($old_content eq $conf{content}) {
-    print "$out_path is up-to-date.\n";
+    print "$out_path is up-to-date.\n" unless $flags{silent};
   } else {
-    my $diff = diff(\$old_content, \$conf{content});
-    # print $diff;
+    if ($flags{diff}) {
+      my $diff = diff(\$old_content, \$conf{content});
+      print $diff;
+    }
     write_content($mode, $out_path, $before.$conf{start_marker}.$conf{content}.$conf{end_marker}.$after);
   }
 }
