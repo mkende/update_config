@@ -94,9 +94,9 @@ sub write_content {
       make_path $dir or die "Cannot create directory '$dir': $!.\n";
     }
   }
-  #open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
-  #print $fh $content;
-  #close $fh or die "Error writing '$file': $!.\n";
+  open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
+  print $fh $content;
+  close $fh or die "Error writing '$file': $!.\n";
   print "$file updated.\n";
 }
 
@@ -106,8 +106,10 @@ sub parse_file_conf {
   $file =~ s/\n{2,}$/\n/;
   $file =~ s/^\n+//;
   if ($file =~ s/^COMMENTS CHAR (.)\n+//) {
-    $conf{start_marker} = START_MARKER =~ tr/DEFAULT_COMMENTS_CAR/$1/r;
-    $conf{end_marker} = END_MARKER =~ tr/DEFAULT_COMMENTS_CAR/$1/r;
+    my $default_comments_char = DEFAULT_COMMENTS_CHAR;
+    my $new_comments_char = $1;
+    $conf{start_marker} = START_MARKER =~ s/$default_comments_char/$new_comments_char/gr;
+    $conf{end_marker} = END_MARKER =~ s/$default_comments_char/$new_comments_char/gr;
   } else {
     $conf{start_marker} = START_MARKER;
     $conf{end_marker} = END_MARKER;
@@ -121,9 +123,11 @@ while (my ($file, $content) = each %{$config_files}) {
   my %conf = parse_file_conf($content);
   my ($mode, $in_path, $out_path) = parse_file_name($file);
   my ($before, $old_content, $after) = read_content($mode, $in_path, $conf{start_marker}, $conf{end_marker});
-  if ($old_content eq $content) {
+  if ($old_content eq $conf{content}) {
     print "$out_path is up-to-date.\n";
   } else {
+    my $diff = diff(\$old_content, \$conf{content});
+    # print $diff;
     write_content($mode, $out_path, $before.$conf{start_marker}.$conf{content}.$conf{end_marker}.$after);
   }
 }
