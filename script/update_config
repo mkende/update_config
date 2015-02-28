@@ -44,7 +44,7 @@ Getopt::Long::Configure('bundling_override');
 # Allow short option to be treated case-insensitively (as long options).
 Getopt::Long::Configure('ignore_case_always');
 my %flags;
-GetOptions(\%flags, 'silent|s', 'diff|d', 'help|h', 'test|t') or print_usage(0);
+GetOptions(\%flags, 'silent', 'diff|d', 'help|h', 'test|t') or print_usage(0);
 print_usage(1) if $flags{help};
 print_usage(0) if @ARGV;
 
@@ -113,12 +113,24 @@ sub write_content {
       make_path $dir or die "Cannot create directory '$dir': $!.\n";
     }
   }
-  if (not $flags{test}) {
-    open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
-    print $fh $content;
-    close $fh or die "Error writing '$file': $!.\n";
+  open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
+  print $fh $content;
+  close $fh or die "Error writing '$file': $!.\n";
+}
+
+sub get_one_file_options {
+  my ($file, $conf) = @_;
+  if ($$file =~ s/^COMMENTS CHAR\s+(\S+)\s*\n+//) {
+    my $default_comments_char = DEFAULT_COMMENTS_CHAR;
+    my $new_comments_char = $1;
+    $$conf{start_marker} =~ s/$default_comments_char/$new_comments_char/g;
+    $$conf{end_marker} =~ s/$default_comments_char/$new_comments_char/g;
+    return 1;
+  } elsif ($$file =~ s/^POST UPDATE\s+(.+)\n+//) {
+    $$conf{post_update} = $1;
+    return 1;
   }
-  print "$file updated.\n" unless $flags{silent};
+  return 0;
 }
 
 sub parse_file_conf {
@@ -126,15 +138,9 @@ sub parse_file_conf {
   my %conf;
   $file =~ s/\n{2,}$/\n/;
   $file =~ s/^\n+//;
-  if ($file =~ s/^COMMENTS CHAR (.)\n+//) {
-    my $default_comments_char = DEFAULT_COMMENTS_CHAR;
-    my $new_comments_char = $1;
-    $conf{start_marker} = START_MARKER =~ s/$default_comments_char/$new_comments_char/gr;
-    $conf{end_marker} = END_MARKER =~ s/$default_comments_char/$new_comments_char/gr;
-  } else {
-    $conf{start_marker} = START_MARKER;
-    $conf{end_marker} = END_MARKER;
-  }
+  $conf{start_marker} = START_MARKER;
+  $conf{end_marker} = END_MARKER;
+  while(get_one_file_options(\$file, \%conf)) {}
   $conf{content} = $file;
   return %conf;
 }
@@ -145,13 +151,20 @@ while (my ($file, $content) = each %{$config_files}) {
   my ($mode, $in_path, $out_path) = parse_file_name($file);
   my ($before, $old_content, $after) = read_content($mode, $in_path, $conf{start_marker}, $conf{end_marker});
   if ($old_content eq $conf{content}) {
-    print "$out_path is up-to-date.\n" unless $flags{silent};
+    print "Nothing to do for: $out_path\n" unless $flags{silent};
   } else {
     if ($flags{diff}) {
-      my $diff = diff(\$old_content, \$conf{content});
-      print $diff;
+      my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
+      print "Diff for: $file $diff";
     }
-    write_content($mode, $out_path, $before.$conf{start_marker}.$conf{content}.$conf{end_marker}.$after);
+    if (not $flags{test}) {
+      write_content($mode, $out_path, $before.$conf{start_marker}.$conf{content}.$conf{end_marker}.$after);
+      if ($conf{post_update}) {
+        my $cmd = $conf{post_update} =~ s/\$@/$out_path/gr;
+        system $cmd;        
+      }
+    }
+    print "Updated: $file\n" unless $flags{silent};
   }
 }
 
