@@ -26,10 +26,12 @@ INIT {
   load_module 'File::Basename', 'dirname';
   load_module 'File::Path', 'make_path';
   load_module 'File::Spec::Functions', 'catfile';
+  load_module 'Text::Diff', 'diff';
 }
 
 use constant START_MARKER => "###AUTO-CONFIG START###\n";
 use constant END_MARKER   => "###AUTO-CONFIG END###\n";
+use constant DEFAULT_COMMENTS_CHAR => '#';
 
 ## contains(file_name, regex)
 ## Returns true if one of the line of the named file matches the given regex.
@@ -92,29 +94,37 @@ sub write_content {
       make_path $dir or die "Cannot create directory '$dir': $!.\n";
     }
   }
-  open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
-  print $fh $content;
-  close $fh or die "Error writing '$file': $!.\n";
+  #open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
+  #print $fh $content;
+  #close $fh or die "Error writing '$file': $!.\n";
   print "$file updated.\n";
+}
+
+sub parse_file_conf {
+  my ($file) = @_;
+  my %conf;
+  $file =~ s/\n{2,}$/\n/;
+  $file =~ s/^\n+//;
+  if ($file =~ s/^COMMENTS CHAR (.)\n+//) {
+    $conf{start_marker} = START_MARKER =~ tr/DEFAULT_COMMENTS_CAR/$1/r;
+    $conf{end_marker} = END_MARKER =~ tr/DEFAULT_COMMENTS_CAR/$1/r;
+  } else {
+    $conf{start_marker} = START_MARKER;
+    $conf{end_marker} = END_MARKER;
+  }
+  $conf{content} = $file;
+  return %conf;
 }
 
 my $config_files = get_data_section();
 while (my ($file, $content) = each %{$config_files}) {
-  $content =~ s/\n+\n$/\n/;
-  $content =~ s/^COMMENTS CHAR (.)\n//;
-  my $comment_char = $1;
-  my $start_marker = START_MARKER;
-  my $end_marker = END_MARKER;
-  if ($comment_char) {
-    $start_marker =~ s/#/$comment_char/g;
-    $end_marker =~ s/#/$comment_char/g;
-  }
+  my %conf = parse_file_conf($content);
   my ($mode, $in_path, $out_path) = parse_file_name($file);
-  my ($before, $old_content, $after) = read_content($mode, $in_path, $start_marker, $end_marker);
+  my ($before, $old_content, $after) = read_content($mode, $in_path, $conf{start_marker}, $conf{end_marker});
   if ($old_content eq $content) {
     print "$out_path is up-to-date.\n";
   } else {
-    write_content($mode, $out_path, $before.$start_marker.$content.$end_marker.$after);
+    write_content($mode, $out_path, $before.$conf{start_marker}.$conf{content}.$conf{end_marker}.$after);
   }
 }
 
