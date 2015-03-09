@@ -3,11 +3,6 @@
 use strict;
 use warnings;
 
-sub print_usage {
-  print "$0: Automatic updating of a linux configuration\n";
-  exit 0;
-}
-
 sub load_module {
   my ($m, @args) = @_;
   my $try_load = sub {
@@ -21,15 +16,32 @@ sub load_module {
 }
 
 INIT {
-  print_usage if grep { m/^--?h(elp)?$/ } @ARGV;
   load_module 'Data::Section::Simple', 'get_data_section';
   load_module 'File::Basename', 'dirname';
   load_module 'File::Path', 'make_path';
   load_module 'File::Spec::Functions', 'catfile';
+  load_module 'Getopt::Long', 'GetOptions';
+  load_module 'Pod::Usage', 'pod2usage';
+  load_module 'Text::Diff', 'diff';
+}
+
+sub print_usage {
+  my ($is_help) = @_;
+  pod2usage( { -msg => "update_config: Automatic updates of a linux configuration.\n",
+               -verbose => $is_help ? 1 : 0,
+               -exitval => $is_help ? 0 : 2,
+               -output => $is_help ? \*STDOUT : \*STDERR,
+             });
 }
 
 use constant START_MARKER => "###AUTO-CONFIG START###\n";
 use constant END_MARKER   => "###AUTO-CONFIG END###\n";
+use constant DEFAULT_COMMENTS_CHAR => '#';
+
+my %flags;
+GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list') or print_usage(0);
+print_usage(1) if $flags{help};
+print_usage(0) if @ARGV;
 
 ## contains(file_name, regex)
 ## Returns true if one of the line of the named file matches the given regex.
@@ -42,6 +54,10 @@ use constant END_MARKER   => "###AUTO-CONFIG END###\n";
 #   return 0;
 # }
 
+# parse_file_name($file_name)
+# Returns a tuple (mode, input_spec, output_spec) where mode is one
+# of 'file' ou 'pipe' specifying if the input and output spec will
+# be normal file name or a commands that should be executed.
 sub parse_file_name {
   my ($raw_path) = @_;
   my @file_part = split ',', $raw_path;
@@ -95,26 +111,59 @@ sub write_content {
   open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
   print $fh $content;
   close $fh or die "Error writing '$file': $!.\n";
-  print "$file updated.\n";
+}
+
+sub get_one_file_options {
+  my ($file, $conf) = @_;
+  if ($$file =~ s/^COMMENTS CHAR\s+(\S+)\s*\n+//) {
+    my $default_comments_char = DEFAULT_COMMENTS_CHAR;
+    my $new_comments_char = $1;
+    $$conf{start_marker} =~ s/$default_comments_char/$new_comments_char/g;
+    $$conf{end_marker} =~ s/$default_comments_char/$new_comments_char/g;
+    return 1;
+  } elsif ($$file =~ s/^POST UPDATE\s+(.+)\n+//) {
+    $$conf{post_update} = $1;
+    return 1;
+  }
+  return 0;
+}
+
+sub parse_file_conf {
+  my ($file) = @_;
+  my %conf;
+  $file =~ s/\n{2,}$/\n/;
+  $file =~ s/^\n+//;
+  $conf{start_marker} = START_MARKER;
+  $conf{end_marker} = END_MARKER;
+  while(get_one_file_options(\$file, \%conf)) {}
+  $conf{content} = $file;
+  return %conf;
 }
 
 my $config_files = get_data_section();
 while (my ($file, $content) = each %{$config_files}) {
-  $content =~ s/\n+\n$/\n/;
-  $content =~ s/^COMMENTS CHAR (.)\n//;
-  my $comment_char = $1;
-  my $start_marker = START_MARKER;
-  my $end_marker = END_MARKER;
-  if ($comment_char) {
-    $start_marker =~ s/#/$comment_char/g;
-    $end_marker =~ s/#/$comment_char/g;
-  }
+  my %conf = parse_file_conf($content);
   my ($mode, $in_path, $out_path) = parse_file_name($file);
-  my ($before, $old_content, $after) = read_content($mode, $in_path, $start_marker, $end_marker);
-  if ($old_content eq $content) {
-    print "$out_path is up-to-date.\n";
+  if ($flags{list}) {
+    print "$in_path\n";
+    next;
+  }
+  my ($before, $old_content, $after) = read_content($mode, $in_path, $conf{start_marker}, $conf{end_marker});
+  if ($old_content eq $conf{content}) {
+    print "Nothing to do for: $out_path\n" unless $flags{silent};
   } else {
-    write_content($mode, $out_path, $before.$start_marker.$content.$end_marker.$after);
+    if ($flags{diff}) {
+      my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
+      print "Diff for: $file $diff";
+    }
+    if (not $flags{test}) {
+      write_content($mode, $out_path, $before.$conf{start_marker}.$conf{content}.$conf{end_marker}.$after);
+      if ($conf{post_update}) {
+        my $cmd = $conf{post_update} =~ s/\$@/$out_path/gr;
+        system $cmd;        
+      }
+    }
+    print "Updated: $file\n" unless $flags{silent};
   }
 }
 
