@@ -34,9 +34,8 @@ sub print_usage {
              });
 }
 
-use constant START_MARKER => "###AUTO-CONFIG START###\n";
-use constant END_MARKER   => "###AUTO-CONFIG END###\n";
 use constant DEFAULT_COMMENTS_CHAR => '#';
+use constant DEFAULT_GUARD_STRING  => 'AUTO-CONFIG';
 
 my %flags;
 GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list') or print_usage(0);
@@ -119,13 +118,13 @@ sub write_content {
 
 sub get_one_file_options {
   my ($file, $conf) = @_;
-  if ($$file =~ s/^COMMENTS CHAR\s+(\S+)\s*\n+//) {
-    my $default_comments_char = DEFAULT_COMMENTS_CHAR;
-    my $new_comments_char = $1;
-    $$conf{start_marker} =~ s/$default_comments_char/$new_comments_char/g;
-    $$conf{end_marker} =~ s/$default_comments_char/$new_comments_char/g;
+  if ($$file =~ s/^COMMENTS CHAR\s+(\S.*?)\s*\n+//) {
+    $$conf{comments_char} = $1;
     return 1;
-  } elsif ($$file =~ s/^POST UPDATE\s+(.+)\n+//) {
+  } elsif ($$file =~ s/GUARD SUFFIX\s+(\S.*?)\s*\n+//) {
+    $$conf{guard_suffix} = $1;
+    return 1;
+  } elsif ($$file =~ s/^POST UPDATE\s+(\S.*?)\s*\n+//) {
     $$conf{post_update} = $1;
     return 1;
   } elsif ($$file =~ s/^IS PREFIX\s*\n+//) {
@@ -140,9 +139,11 @@ sub parse_file_conf {
   my %conf;
   $file =~ s/\n{2,}$/\n/;
   $file =~ s/^\n+//;
-  $conf{start_marker} = START_MARKER;
-  $conf{end_marker} = END_MARKER;
   while(get_one_file_options(\$file, \%conf)) {}
+  my $comments_decorator = ($conf{comments_char} // DEFAULT_COMMENTS_CHAR) x 3;
+  my $guard = DEFAULT_GUARD_STRING . (exists $conf{guard_suffix} ? ':'.$conf{guard_suffix} : '');
+  $conf{start_marker} = $comments_decorator.$guard.' START'.$comments_decorator."\n";
+  $conf{end_marker} = $comments_decorator.$guard.' END'.$comments_decorator."\n";
   $conf{content} = $file;
   return %conf;
 }
