@@ -80,7 +80,7 @@ sub read_content {
     }
   }
   die "Missing closing tag in '$file'.\n" if $status eq 'inside';
-  close $fh or die "Unexpected error closing '$file': $!.\n";
+  close $fh;
   return ($before_content, $old_content, $after_content);
 }
 
