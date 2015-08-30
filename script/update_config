@@ -3,6 +3,8 @@
 use strict;
 use warnings;
 
+my $need_sudo = 0;
+
 sub load_module {
   my ($m, @args) = @_;
   my $try_load = sub {
@@ -11,7 +13,13 @@ sub load_module {
     1;
   };
   return 1 if $try_load->();
-  system "sudo cpan -i $m" and die "Cannot install module '$m'.\n";
+  if (!$need_sudo) {
+    system "cpan -i $m" and $need_sudo = 1;
+  }
+
+  if ($need_sudo) {
+    system "sudo cpan -i $m" and die "Cannot install module '$m'.\n";
+  }
   $try_load->() or die "Cannot load module '$m'.\n";
 }
 
