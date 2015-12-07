@@ -116,7 +116,7 @@ sub write_content {
   if ($mode eq 'file') {
     my $dir = dirname($file);
     if (not -e $dir) {
-      make_path $dir or die "Cannot create directory '$dir': $!.\n";
+      make_path($dir) or die "Cannot create directory '$dir': $!.\n";
     }
   }
   open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
