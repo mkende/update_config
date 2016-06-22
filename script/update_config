@@ -88,7 +88,7 @@ sub read_content {
     return ('', '', '');
   }
   open (my $fh, ($mode eq 'file' ? '<' : '-|'), $file) or die "Cannot open '$file' for read: $!.\n";
-  my $status = 'before';
+  my $status = $$conf{entire_file} ? 'inside' : 'before';
   my ($before_content, $old_content, $after_content) = ('', '', '');
   while (my $l = <$fh>) {
     if ($status eq 'before' && $l ne $$conf{start_marker}) {
@@ -106,13 +106,14 @@ sub read_content {
   if ($$conf{is_prefix} && $status eq 'before') {
     ($before_content, $after_content) = ('', $before_content);
   }
-  die "Missing closing tag in '$file'.\n" if $status eq 'inside';
+  die "Missing closing tag in '$file'.\n" if $status eq 'inside' and not $$conf{entire_file};
+  die "Unexpected closing tag in '$file'.\n" if $status eq 'after' and $$conf{entire_file};
   close $fh;
   return ($before_content, $old_content, $after_content);
 }
 
 sub write_content {
-  my ($mode, $file, $content) = @_;
+  my ($mode, $file, $content, $conf) = @_;
   if ($mode eq 'file') {
     my $dir = dirname($file);
     if (not -e $dir) {
@@ -121,7 +122,12 @@ sub write_content {
   }
   open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
   print $fh $content;
+  if ($$conf{make_executable}) {
+    my $current_mode = (stat $fh)[2] & 07777;
+    chmod($current_mode | 0111, $fh);
+  }
   close $fh or die "Error writing '$file': $!.\n";
+
 }
 
 sub get_one_file_options {
@@ -137,6 +143,15 @@ sub get_one_file_options {
     return 1;
   } elsif ($$file =~ s/^IS PREFIX\s*\n+//) {
     $$conf{is_prefix} = 1;
+    return 1;
+  } elsif ($$file =~ s/^NEED ROOT\s*\n+//) {
+    $$conf{need_root} = 1;
+    return 1;
+  } elsif ($$file =~ s/^ENTIRE FILE\s*\n+//) {
+    $$conf{entire_file} = 1;
+    return 1;
+  } elsif ($$file =~ s/^MAKE EXECUTABLE\s*\n+//) {
+    $$conf{make_executable} = 1;
     return 1;
   }
   return 0;
@@ -172,8 +187,18 @@ while (my ($file, $content) = each %{$config_files}) {
       my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
       print "Diff for: $file $diff";
     }
+    if ($conf{need_root}) {
+      print "Skipping file that need root (not yet supported): $file\n" unless $flags{silent};
+      next;
+    }
     if (not $flags{test}) {
-      write_content($mode, $out_path, $before.$conf{start_marker}.$conf{content}.$conf{end_marker}.$after);
+      my $content;
+      if ($conf{entire_file}) {
+        $content = $conf{content};
+      } else {
+        $content = $before.$conf{start_marker}.$conf{content}.$conf{end_marker}.$after;
+      }
+      write_content($mode, $out_path, $content, \%conf);
       if ($conf{post_update}) {
         my $cmd = $conf{post_update} =~ s/\$@/$out_path/gr;
         system $cmd;
