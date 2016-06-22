@@ -185,7 +185,7 @@ while (my ($file, $content) = each %{$config_files}) {
   } else {
     if ($flags{diff}) {
       my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
-      print "Diff for: $file $diff";
+      print "Diff for: $file\n$diff";
     }
     if ($conf{need_root}) {
       print "Skipping file that need root (not yet supported): $file\n" unless $flags{silent};
