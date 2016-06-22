@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+use English;
 
 my $need_sudo = 0;
 
@@ -158,6 +159,9 @@ sub get_one_file_options {
   } elsif ($$file =~ s/^MAKE EXECUTABLE\s*\n+//) {
     $$conf{make_executable} = 1;
     return 1;
+  } elsif ($$file =~ s/^REQUIRE\s+(.*)\n+//) {
+    $$conf{require} = $1;
+    return 1;
   }
   return 0;
 }
@@ -182,6 +186,11 @@ while (my ($file, $content) = each %{$config_files}) {
   my ($mode, $in_path, $out_path) = parse_file_name($file);
   if ($flags{list}) {
     print "$in_path\n";
+    next;
+  }
+  if ($conf{require} and not eval $conf{require}) {
+    die "Error while executing 'require' guard '$conf{require}': $@.\n" if $@;
+    print "Skipping due to 'require' guard: $file\n";
     next;
   }
   my ($before, $old_content, $after) = read_content($mode, $in_path, \%conf);
