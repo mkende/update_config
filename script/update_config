@@ -72,8 +72,13 @@ sub parse_file_name {
   my $mode = @file_part == 1 ? 'file' : 'pipe';
   die "Invalid file specification: '$raw_path'." if @file_part < 1 || @file_part > 2;
   if (@file_part == 1) {
-    my $home_dir=`echo -n ~`;
-    my $path = catfile($home_dir, $file_part[0]);
+    my $path;
+    if ($file_part[0] =~ m{^/}) {
+      $path = $file_part[0];
+    } else {
+      my $home_dir=`echo -n ~`;
+      $path = catfile($home_dir, $file_part[0]);
+    }
     return ('file', $path, $path);
   } else {
     return ('pipe', @file_part);
