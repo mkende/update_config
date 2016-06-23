@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 use English;
+use FindBin;
 
 my $need_sudo = 0;
 
@@ -47,7 +48,8 @@ use constant DEFAULT_COMMENTS_CHAR => '#';
 use constant DEFAULT_GUARD_STRING  => 'AUTO-CONFIG';
 
 my %flags;
-GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list') or print_usage(0);
+my @orig_argv = @ARGV;
+GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root') or print_usage(0);
 print_usage(1) if $flags{help};
 print_usage(0) if @ARGV;
 
@@ -181,16 +183,23 @@ sub parse_file_conf {
 }
 
 my $config_files = get_data_section();
+my $need_root;
 while (my ($file, $content) = each %{$config_files}) {
   my %conf = parse_file_conf($content);
-  my ($mode, $in_path, $out_path) = parse_file_name($file);
-  if ($flags{list}) {
-    print "$in_path\n";
-    next;
-  }
   if ($conf{require} and not eval $conf{require}) {
     die "Error while executing 'require' guard '$conf{require}': $@.\n" if $@;
     print "Skipping due to 'require' guard: $file\n";
+    next;
+  }
+  if ($conf{need_root} and not $flags{root}) {
+    $need_root = 1;
+    next;
+  } elsif ($flags{root} and not $conf{need_root}) {
+    next;
+  }
+  my ($mode, $in_path, $out_path) = parse_file_name($file);
+  if ($flags{list}) {
+    print "$in_path\n";
     next;
   }
   my ($before, $old_content, $after) = read_content($mode, $in_path, \%conf);
@@ -200,10 +209,6 @@ while (my ($file, $content) = each %{$config_files}) {
     if ($flags{diff}) {
       my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
       print "Diff for: $file\n$diff";
-    }
-    if ($conf{need_root}) {
-      print "Skipping file that need root (not yet supported): $file\n" unless $flags{silent};
-      next;
     }
     if (not $flags{test}) {
       my $content;
@@ -220,6 +225,11 @@ while (my ($file, $content) = each %{$config_files}) {
     }
     print "Updated: $file\n" unless $flags{silent};
   }
+}
+
+if ($need_root) {
+  my $script = catfile(${FindBin::RealBin}, ${FindBin::RealScript});
+  system('sudo', $script, @orig_argv, '--root');
 }
 
 __DATA__
