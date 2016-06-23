@@ -191,12 +191,6 @@ while (my ($file, $content) = each %{$config_files}) {
     print "Skipping due to 'require' guard: $file\n";
     next;
   }
-  if ($conf{need_root} and not $flags{root}) {
-    $need_root = 1;
-    next;
-  } elsif ($flags{root} and not $conf{need_root}) {
-    next;
-  }
   my ($mode, $in_path, $out_path) = parse_file_name($file);
   if ($flags{list}) {
     print "$in_path\n";
@@ -209,6 +203,12 @@ while (my ($file, $content) = each %{$config_files}) {
     if ($flags{diff}) {
       my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
       print "Diff for: $file\n$diff";
+    }
+    if ($conf{need_root} and not $flags{root}) {
+      $need_root = 1;
+      next;
+    } elsif ($flags{root} and not $conf{need_root}) {
+      next;
     }
     if (not $flags{test}) {
       my $content;
