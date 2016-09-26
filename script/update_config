@@ -189,18 +189,18 @@ my $config_files = get_data_section();
 my $need_root;
 while (my ($file, $content) = each %{$config_files}) {
   my %conf = parse_file_conf($content);
-  if ($conf{require} and not eval $conf{require}) {
-    die "Error while executing 'require' guard '$conf{require}': $@.\n" if $@;
-    print "Skipping due to 'require' guard: $file\n";
-    next;
-  }
-  my ($mode, $in_path, $out_path) = parse_file_name($conf{filename} // $file);
   my $display;
   if ($conf{filename}) {
     $display = "$conf{filename} (from $file)";
   } else {
     $display = $file;
   }
+  if ($conf{require} and not eval $conf{require}) {
+    die "Error while executing 'require' guard '$conf{require}': $@.\n" if $@;
+    print "Skipping due to 'require' guard: $display\n";
+    next;
+  }
+  my ($mode, $in_path, $out_path) = parse_file_name($conf{filename} // $file);
   if ($flags{list}) {
     print "$in_path\n";
     next;
