@@ -140,13 +140,13 @@ sub write_content {
 
 sub get_one_file_options {
   my ($file, $conf) = @_;
-  if ($$file =~ s/^COMMENTS CHAR\s+(\S.*?)\s*\n+//) {
+  if ($$file =~ s/^COMMENTS CHAR\s+(.*?)\s*\n+//) {
     $$conf{comments_char} = $1;
     return 1;
-  } elsif ($$file =~ s/GUARD SUFFIX\s+(\S.*?)\s*\n+//) {
+  } elsif ($$file =~ s/GUARD SUFFIX\s+(.*?)\s*\n+//) {
     $$conf{guard_suffix} = $1;
     return 1;
-  } elsif ($$file =~ s/^POST UPDATE\s+(\S.*?)\s*\n+//) {
+  } elsif ($$file =~ s/^POST UPDATE\s+(.*?)\s*\n+//) {
     $$conf{post_update} = $1;
     return 1;
   } elsif ($$file =~ s/^IS PREFIX\s*\n+//) {
@@ -163,6 +163,9 @@ sub get_one_file_options {
     return 1;
   } elsif ($$file =~ s/^REQUIRE\s+(.*)\n+//) {
     $$conf{require} = $1;
+    return 1;
+  } elsif ($$file =~ s/^FILENAME\s+(.*?)\s+\n+//) {
+    $$conf{filename} = $1;
     return 1;
   }
   return 0;
@@ -191,18 +194,24 @@ while (my ($file, $content) = each %{$config_files}) {
     print "Skipping due to 'require' guard: $file\n";
     next;
   }
-  my ($mode, $in_path, $out_path) = parse_file_name($file);
+  my ($mode, $in_path, $out_path) = parse_file_name($conf{filename} // $file);
+  my $display;
+  if ($conf{filename}) {
+    $display = "$conf{filename} (from $file)";
+  } else {
+    $display = $file;
+  }
   if ($flags{list}) {
     print "$in_path\n";
     next;
   }
   my ($before, $old_content, $after) = read_content($mode, $in_path, \%conf);
   if ($old_content eq $conf{content}) {
-    print "Nothing to do for: $file\n" unless $flags{silent};
+    print "Nothing to do for: $display\n" unless $flags{silent};
   } else {
     if ($flags{diff}) {
       my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
-      print "Diff for: $file\n$diff";
+      print "Diff for: $display\n$diff";
     }
     if ($conf{need_root} and not $flags{root}) {
       $need_root = 1;
@@ -223,7 +232,7 @@ while (my ($file, $content) = each %{$config_files}) {
         system $cmd;
       }
     }
-    print "Updated: $file\n" unless $flags{silent};
+    print "Updated: $display\n" unless $flags{silent};
   }
 }
 
