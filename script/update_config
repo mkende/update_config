@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+use 5.012;
 use English;
 use FindBin;
 
@@ -29,7 +30,9 @@ INIT {
   load_module 'Data::Section::Simple', 'get_data_section';
   load_module 'File::Basename', 'dirname';
   load_module 'File::Path', 'make_path';
+  load_module 'File::Slurp', 'read_file';
   load_module 'File::Spec::Functions', 'catfile';
+  load_module 'FindBin';
   load_module 'Getopt::Long', 'GetOptions';
   load_module 'Pod::Usage', 'pod2usage';
   load_module 'Text::Diff', 'diff';
@@ -53,6 +56,10 @@ GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root') or print_u
 print_usage(1) if $flags{help};
 print_usage(0) if @ARGV;
 
+sub get_home_dir {
+  return `echo -n ~`;
+}
+
 # parse_file_name($file_name)
 # Returns a tuple (mode, input_spec, output_spec) where mode is one
 # of 'file' ou 'pipe' specifying if the input and output spec will
@@ -68,8 +75,7 @@ sub parse_file_name {
     if ($file_part[0] =~ m{^/}) {
       $path = $file_part[0];
     } else {
-      my $home_dir=`echo -n ~`;
-      $path = catfile($home_dir, $file_part[0]);
+      $path = catfile(get_home_dir(), $file_part[0]);
     }
     return ('file', $path, $path);
   } else {
@@ -174,7 +180,27 @@ sub parse_file_conf {
   return %conf;
 }
 
+# Puts in %$content the content of the files in the given directory and
+# all its subdirectories. Ignores hidden files and directories. Ignores
+# multiple files with the same name.
+sub read_config_files {
+  my ($dir, $content) = @_;
+  opendir(my $dh, $dir) or die "Can't open dir '$dir': $!\n";
+  while (readdir $dh) {
+    next if  m/^\./;
+    my $f = catfile($dir, $_);
+    read_config_files($f, $content) if -d $f;
+    $content->{$_} = read_file($f) if -f $f;
+  }
+  closedir $dh;
+}
+
 my $config_files = get_data_section();
+my @config_dirs = (catfile($FindBin::Bin, 'config.d'), catfile(get_home_dir(), '.config/update_config'));
+for my $d (@config_dirs) {
+  next if not -d $d;
+  read_config_files($d, $config_files);
+}
 my $need_root;
 while (my ($file, $content) = each %{$config_files}) {
   my %conf = parse_file_conf($content);
