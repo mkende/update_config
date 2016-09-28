@@ -30,7 +30,7 @@ INIT {
   load_module 'Data::Section::Simple', 'get_data_section';
   load_module 'File::Basename', 'dirname';
   load_module 'File::Path', 'make_path';
-  load_module 'File::Slurp', 'read_file';
+  load_module 'File::Slurp', 'read_file', 'write_file';
   load_module 'File::Spec::Functions', 'catfile';
   load_module 'FindBin';
   load_module 'Getopt::Long', 'GetOptions';
@@ -52,7 +52,7 @@ use constant DEFAULT_GUARD_STRING  => 'AUTO-CONFIG';
 
 my %flags;
 my @orig_argv = @ARGV;
-GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root') or print_usage(0);
+GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root', 'export') or print_usage(0);
 print_usage(1) if $flags{help};
 print_usage(0) if @ARGV;
 
@@ -60,13 +60,22 @@ sub get_home_dir {
   return `echo -n ~`;
 }
 
+# Remove part of a file name that we are ignoring when creating the
+# target file (for the moment, only a suffix within bracket).
+sub clean_output_path {
+  my ($name) = @_;
+  return $name =~ s/\s*(?:\[.*\]\s*)$//r;
+}
 # parse_file_name($file_name)
 # Returns a tuple (mode, input_spec, output_spec) where mode is one
 # of 'file' ou 'pipe' specifying if the input and output spec will
 # be normal file name or a commands that should be executed.
+# If the file has a prefix in bracket, then it is ignored.
 sub parse_file_name {
+  # if more logic is added in this function, it may be needed to reverse
+  # it in the export block.
   my ($raw_path) = @_;
-  $raw_path =~ s/\s*(?:\[.*\]\s*)$//;
+  $raw_path = clean_output_path($raw_path);
   my @file_part = split ',', $raw_path;
   my $mode = @file_part == 1 ? 'file' : 'pipe';
   die "Invalid file specification: '$raw_path'." if @file_part < 1 || @file_part > 2;
@@ -193,6 +202,22 @@ sub read_config_files {
     $content->{$_} = read_file($f) if -f $f;
   }
   closedir $dh;
+}
+
+if ($flags{export}) {
+  my $internal_files = get_data_section();
+  while (my ($file, $content) = each %{$internal_files}) {
+    my %conf = parse_file_conf($content);
+    if (not exists $conf{filename}) {
+      my $output = clean_output_path($file);
+      $content = "FILENAME $output\n$content";
+    }
+    $file =~ s/^\.//;
+    $file =~ s{/|,}{_}g;
+    print "Exporting: $file\n";
+    write_file($file, $content) or die "Cannot write file '$file': $!\n";
+  }
+  exit 0;
 }
 
 my $config_files = get_data_section();
