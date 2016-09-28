@@ -53,17 +53,6 @@ GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root') or print_u
 print_usage(1) if $flags{help};
 print_usage(0) if @ARGV;
 
-## contains(file_name, regex)
-## Returns true if one of the line of the named file matches the given regex.
-# sub contains {
-#   my ($file, $re) = @_;
-#   open(my $fh, '<', $file) or die "Cannot open '$file': $!";
-#   while (my $l = <$fh>) {
-#     return 1 if $l =~ m/$re/;
-#   }
-#   return 0;
-# }
-
 # parse_file_name($file_name)
 # Returns a tuple (mode, input_spec, output_spec) where mode is one
 # of 'file' ou 'pipe' specifying if the input and output spec will
