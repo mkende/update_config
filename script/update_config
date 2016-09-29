@@ -168,7 +168,7 @@ sub get_one_file_options {
   } elsif ($$file =~ s/^REQUIRE\s+(.*)\n+//) {
     $$conf{require} = $1;
     return 1;
-  } elsif ($$file =~ s/^FILENAME\s+(.*?)\s+\n+//) {
+  } elsif ($$file =~ s/^FILENAME\s+(.*?)\s*\n+//) {
     $$conf{filename} = $1;
     return 1;
   }
