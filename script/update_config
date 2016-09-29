@@ -229,29 +229,24 @@ for my $d (@config_dirs) {
 my $need_root;
 while (my ($file, $content) = each %{$config_files}) {
   my %conf = parse_file_conf($content);
-  my $display;
-  if ($conf{filename}) {
-    $display = "$conf{filename} (from $file)";
-  } else {
-    $display = $file;
-  }
+  my $target = $conf{filename} // $file;
   if ($conf{require} and not eval $conf{require}) {
     die "Error while executing 'require' guard '$conf{require}': $@.\n" if $@;
-    print "Skipping due to 'require' guard: $display\n";
+    print "Skipping due to 'require' guard: $target\n";
     next;
   }
-  my ($mode, $in_path, $out_path) = parse_file_name($conf{filename} // $file);
+  my ($mode, $in_path, $out_path) = parse_file_name($target);
   if ($flags{list}) {
     print "$in_path\n";
     next;
   }
   my ($before, $old_content, $after) = read_content($mode, $in_path, \%conf);
   if ($old_content eq $conf{content}) {
-    print "Nothing to do for: $display\n" unless $flags{silent};
+    print "Nothing to do for: $target\n" unless $flags{silent};
   } else {
     if ($flags{diff}) {
       my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
-      print "Diff for: $display\n$diff";
+      print "Diff for: $target\n$diff";
     }
     if ($conf{need_root} and not $flags{root}) {
       $need_root = 1;
@@ -272,7 +267,7 @@ while (my ($file, $content) = each %{$config_files}) {
         system $cmd;
       }
     }
-    print "Updated: $display\n" unless $flags{silent};
+    print "Updated: $target\n" unless $flags{silent};
   }
 }
 
