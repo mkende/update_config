@@ -139,7 +139,15 @@ sub write_content {
     chmod($current_mode | 0111, $fh);
   }
   close $fh or die "Error writing '$file': $!.\n";
+  chmod oct($$conf{perm}), $file if need_perm_update($file, $mode, $conf);
+}
 
+sub need_perm_update {
+  my ($file, $mode, $conf) = @_;
+  return 0 if not exists $$conf{perm};
+  return 0 if $mode ne 'file';
+  my $current = (stat $file)[2] & 07777;
+  return $current != oct($$conf{perm});
 }
 
 sub get_one_file_options {
@@ -170,6 +178,10 @@ sub get_one_file_options {
     return 1;
   } elsif ($$file =~ s/^FILENAME\s+(.*?)\s*\n+//) {
     $$conf{filename} = $1;
+    return 1;
+  } elsif ($$file =~ s/^PERM\s+(.*?)\s*\n+//) {
+    # TODO: validate that the mode is a correct octal value.
+    $$conf{perm} = $1;
     return 1;
   }
   return 0;
@@ -241,7 +253,7 @@ while (my ($file, $content) = each %{$config_files}) {
     next;
   }
   my ($before, $old_content, $after) = read_content($mode, $in_path, \%conf);
-  if ($old_content eq $conf{content}) {
+  if ($old_content eq $conf{content} and not need_perm_update($out_path, $mode, \%conf)) {
     print "Nothing to do for: $target\n" unless $flags{silent};
   } else {
     if ($flags{diff}) {
