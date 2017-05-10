@@ -119,7 +119,6 @@ sub read_content {
     ($before_content, $after_content) = ('', $before_content);
   }
   die "Missing closing tag in '$file'.\n" if $status eq 'inside' and not $$conf{entire_file};
-  die "Unexpected closing tag in '$file'.\n" if $status eq 'after' and $$conf{entire_file};
   close $fh;
   return ($before_content, $old_content, $after_content);
 }
