@@ -52,7 +52,7 @@ use constant DEFAULT_GUARD_STRING  => 'AUTO-CONFIG';
 
 my %flags;
 my @orig_argv = @ARGV;
-GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root', 'export') or print_usage(0);
+GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root', 'export', 'dir=s') or print_usage(0);
 print_usage(1) if $flags{help};
 print_usage(0) if @ARGV;
 
@@ -233,7 +233,12 @@ if ($flags{export}) {
 }
 
 my $config_files = get_data_section();
-my @config_dirs = (catfile($FindBin::Bin, 'config.d'), catfile(get_home_dir(), '.config/update_config'));
+my @config_dirs;
+if ($flags{dir}) {
+  @config_dirs = ($flags{dir});
+} else {
+  @config_dirs = (catfile($FindBin::Bin, 'config.d'), catfile(get_home_dir(), '.config/update_config'));
+}
 for my $d (@config_dirs) {
   next if not -d $d;
   read_config_files($d, $config_files);
