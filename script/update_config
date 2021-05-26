@@ -183,6 +183,8 @@ sub get_one_file_options {
     # TODO: validate that the mode is a correct octal value.
     $$conf{perm} = $1;
     return 1;
+  } elsif ($$file =~ s/^REM\s+.*\n+//) {
+    return 1;
   }
   return 0;
 }
