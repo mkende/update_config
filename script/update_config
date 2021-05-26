@@ -244,7 +244,8 @@ for my $d (@config_dirs) {
   read_config_files($d, $config_files);
 }
 my $need_root;
-while (my ($file, $content) = each %{$config_files}) {
+for my $file (sort keys %{$config_files}) {
+  my $content = $config_files->{$file};
   my %conf = parse_file_conf($content);
   my $target = $conf{filename} // $file;
   if ($conf{require} and not eval $conf{require}) {
