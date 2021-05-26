@@ -68,7 +68,7 @@ sub clean_output_path {
 }
 # parse_file_name($file_name)
 # Returns a tuple (mode, input_spec, output_spec) where mode is one
-# of 'file' ou 'pipe' specifying if the input and output spec will
+# of 'file' or 'pipe' specifying if the input and output spec will
 # be normal file name or a commands that should be executed.
 # If the file has a prefix in bracket, then it is ignored.
 sub parse_file_name {
@@ -172,8 +172,9 @@ sub get_one_file_options {
   } elsif ($$file =~ s/^MAKE EXECUTABLE\s*\n+//) {
     $$conf{make_executable} = 1;
     return 1;
-  } elsif ($$file =~ s/^REQUIRE\s+(.*)\n+//) {
+  } elsif ($$file =~ s/^REQUIRE\s+(.*?)(?:\s*#\s*(.*))?\n+//) {
     $$conf{require} = $1;
+    $$conf{require_comment} = $2 if $2;
     return 1;
   } elsif ($$file =~ s/^FILENAME\s+(.*?)\s*\n+//) {
     $$conf{filename} = $1;
@@ -248,7 +249,8 @@ while (my ($file, $content) = each %{$config_files}) {
   my $target = $conf{filename} // $file;
   if ($conf{require} and not eval $conf{require}) {
     die "Error while executing 'require' guard '$conf{require}': $@.\n" if $@;
-    print "Skipping due to 'require' guard: $target\n";
+    printf "Skipping due to 'require' guard%s: %s\n",
+        ($conf{require_comment} ? ' '.$conf{require_comment} : ''), $target;
     next;
   }
   my ($mode, $in_path, $out_path) = parse_file_name($target);
