@@ -250,7 +250,7 @@ while (my ($file, $content) = each %{$config_files}) {
   if ($conf{require} and not eval $conf{require}) {
     die "Error while executing 'require' guard '$conf{require}': $@.\n" if $@;
     printf "Skipping due to 'require' guard%s: %s\n",
-        ($conf{require_comment} ? ' '.$conf{require_comment} : ''), $target;
+        ($conf{require_comment} ? ' ('.$conf{require_comment}.')' : ''), $target;
     next;
   }
   my ($mode, $in_path, $out_path) = parse_file_name($target);
