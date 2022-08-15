@@ -250,10 +250,11 @@ for my $file (sort keys %{$config_files}) {
   my $content = $config_files->{$file};
   my %conf = parse_file_conf($content);
   my $target = $conf{filename} // $file;
+  my $display_name = $target . ($conf{guard_suffix} ? ' ('.$conf{guard_suffix}.')' : '');
   if ($conf{require} and not eval $conf{require}) {
-    die "Error while executing 'require' guard '$conf{require}': $@.\n" if $@;
+    die "Error while executing 'require' guard for ${display_name} '$conf{require}': $@.\n" if $@;
     printf "Skipping due to 'require' guard%s: %s\n",
-        ($conf{require_comment} ? ' ('.$conf{require_comment}.')' : ''), $target;
+        ($conf{require_comment} ? ' ('.$conf{require_comment}.')' : ''), $display_name;
     next;
   }
   my ($mode, $in_path, $out_path) = parse_file_name($target);
@@ -263,11 +264,11 @@ for my $file (sort keys %{$config_files}) {
   }
   my ($before, $old_content, $after) = read_content($mode, $in_path, \%conf);
   if ($old_content eq $conf{content} and not need_perm_update($out_path, $mode, \%conf)) {
-    print "Nothing to do for: $target\n" unless $flags{silent};
+    print "Nothing to do for: $display_name\n" unless $flags{silent};
   } else {
     if ($flags{diff}) {
       my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
-      print "Diff for: $target\n$diff";
+      print "Diff for: $display_name\n$diff";
     }
     if ($conf{need_root} and not $flags{root}) {
       $need_root = 1;
@@ -288,7 +289,7 @@ for my $file (sort keys %{$config_files}) {
         system $cmd;
       }
     }
-    print "Updated: $target\n" unless $flags{silent};
+    print "Updated: ${display_name}\n" unless $flags{silent};
   }
 }
 
