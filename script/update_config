@@ -172,7 +172,7 @@ sub get_one_file_options {
   } elsif ($$file =~ s/^MAKE EXECUTABLE\s*\n+//) {
     $$conf{make_executable} = 1;
     return 1;
-  } elsif ($$file =~ s/^REQUIRE\s+(.*?)(?:\s*#\s*(.*))?\n+//) {
+  } elsif ($$file =~ s/^REQUIRE\s+(.*?)(?:\s*#\s*(.*))??\n+//) {
     $$conf{require} = $1;
     $$conf{require_comment} = $2 if $2;
     return 1;
