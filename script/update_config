@@ -29,6 +29,7 @@ sub load_module {
 INIT {
   load_module 'Data::Section::Simple', 'get_data_section';
   load_module 'File::Basename', 'dirname';
+  load_module 'File::HomeDir';
   load_module 'File::Path', 'make_path';
   load_module 'File::Slurp', 'read_file', 'write_file';
   load_module 'File::Spec::Functions', 'catfile';
@@ -57,7 +58,8 @@ print_usage(1) if $flags{help};
 print_usage(0) if @ARGV;
 
 sub get_home_dir {
-  return `echo -n ~`;
+  return File::HomeDir->my_home
+  # return `echo -n ~`;
 }
 
 # Remove part of a file name that we are ignoring when creating the
