@@ -37,6 +37,7 @@ INIT {
   load_module 'Getopt::Long', 'GetOptions';
   load_module 'Pod::Usage', 'pod2usage';
   load_module 'Text::Diff', 'diff';
+  load_module 'File::Which';  # Loaded so that config fragments can REQUIRE which('program')
 }
 
 sub print_usage {
