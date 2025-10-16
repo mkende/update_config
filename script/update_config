@@ -2,9 +2,18 @@
 
 use strict;
 use warnings;
-use 5.012;
+use 5.024;
 use English;
 use FindBin;
+
+# Only modules that are in the standard distribution for 5.24. The rests should
+# be in the INIT block below.
+use File::Basename 'dirname';
+use File::Path 'make_path';
+use File::Spec::Functions 'catfile';
+use FindBin;
+use Getopt::Long 'GetOptions';
+use Pod::Usage 'pod2usage';
 
 my $need_sudo = 0;
 
@@ -28,14 +37,8 @@ sub load_module {
 
 INIT {
   load_module 'Data::Section::Simple', 'get_data_section';
-  load_module 'File::Basename', 'dirname';
   load_module 'File::HomeDir';
-  load_module 'File::Path', 'make_path';
   load_module 'File::Slurp', 'read_file', 'write_file';
-  load_module 'File::Spec::Functions', 'catfile';
-  load_module 'FindBin';
-  load_module 'Getopt::Long', 'GetOptions';
-  load_module 'Pod::Usage', 'pod2usage';
   load_module 'Text::Diff', 'diff';
   load_module 'File::Which';  # Loaded so that config fragments can REQUIRE which('program')
 }
