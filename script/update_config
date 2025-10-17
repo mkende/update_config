@@ -27,9 +27,14 @@ my %flags;
 my @orig_argv;
 BEGIN {
   @orig_argv = @ARGV;
-  GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root', 'export', 'dir=s') or print_usage(0);
+  GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root', 'no-root',
+             'export', 'dir=s', 'pack') or print_usage(0);
   print_usage(1) if $flags{help};
   print_usage(0) if @ARGV;
+  if ($flags{pack} and $0 eq '-') {
+    print STDERR "Cannot use --pack if the script is read from the standard input\n";
+    exit 1;
+  }
 }
 
 my $need_sudo = 0;
@@ -53,6 +58,8 @@ sub load_module {
   # first place.
   if (!$has_local_lib) {
     $ENV{PERL_MM_USE_DEFAULT} = 1;  # Used so that cpan don’t ask questions.
+    # local::lib prints some configuration and exit the program when $0 is '-' (meant for `perl -Mlocal::lib`).
+    local $0 = $0 eq '-' ? 'fakename.pl' : $0;
     if (try_load('local::lib')) {
       $has_local_lib = '-I';
       print "Successfully loaded local::lib\n" unless $flags{silent};
@@ -266,7 +273,8 @@ if ($flags{export}) {
   exit 0;
 }
 
-my $config_files = get_data_section();
+my $config_files = {};
+$config_files = get_data_section() unless $flags{pack};  # We don’t read __DATA__ if we’re packing content anyway.
 my @config_dirs;
 if ($flags{dir}) {
   @config_dirs = ($flags{dir});
@@ -277,9 +285,17 @@ for my $d (@config_dirs) {
   next if not -d $d;
   read_config_files($d, $config_files);
 }
+
+# We print our own script to STDOUT if we are in --pack mode.
+print read_file($FindBin::Script) if $flags{pack};
+
 my $need_root;
 FILE: for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
   my $content = $config_files->{$file};
+  if ($flags{pack}) {
+    printf "@@ %s\n%s\n", $file, $content;
+    next;
+  }
   my %conf = parse_file_conf($content);
   my $target = $conf{filename} // $file;
   my $display_name = $target . ($conf{guard_suffix} ? ' ('.$conf{guard_suffix}.')' : '');
@@ -326,9 +342,56 @@ FILE: for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
   }
 }
 
-if ($need_root) {
+if ($need_root && !$flags{'no-root'}) {
+  if ($0 eq '-') {
+    print "Skipping NEED_ROOT fragments for an execution from stdin\n" unless $flags{silent};
+    exit 0;
+  }
   my $script = catfile(${FindBin::RealBin}, ${FindBin::RealScript});
   system('sudo', $script, @orig_argv, '--root');
 }
+
+=pod
+
+=head1 SYNOPSIS
+
+update_config [--test] [--help] [--diff] [--silent] [--list]
+
+=head1 OPTIONS
+
+The available options for the program are the following. They can all be
+abbreviated down to a single character.
+
+  --diff   Print the difference between the current configuration and what
+           will be written
+  
+  --silent Do not print the status of the configuration files (except for
+           error messages).
+  
+  --test   Do not modify the configuration files.
+  
+  --list   Only print a list of the configuration files and exit.
+
+  --root   Install only the configuration fragments that are marked as
+           'NEED ROOT'.
+  
+  --no-root  Do not attempt to install the 'NEED ROOT' fragments.
+
+  --export Export in the current directory all the files that are embedded
+           in the script.
+
+  --dir directory   Process only the configuration files in the given
+           directory and its subdirectories, instead of those from the
+           default paths.
+
+  --pack  Write on the standard output a version of the script where all the
+          config fragments are embedded. To be used typicaly with:
+            update_config --pack | ssh user@host perl -- - --no-root
+          or just
+            update_config --pack | ssh host perl
+  
+  --help   Print this help message.
+
+=cut
 
 __DATA__
