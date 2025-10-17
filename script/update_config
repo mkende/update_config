@@ -4,7 +4,6 @@ use strict;
 use warnings;
 use 5.024;
 use English;
-use FindBin;
 
 # Only modules that are in the standard distribution for 5.24. The rests should
 # be in the INIT block below.
@@ -15,34 +14,6 @@ use FindBin;
 use Getopt::Long 'GetOptions';
 use Pod::Usage 'pod2usage';
 
-my $need_sudo = 0;
-
-sub load_module {
-  my ($m, @args) = @_;
-  my $try_load = sub {
-    eval "require $m" or return 0;
-    $m->import(@args);
-    1;
-  };
-  return 1 if $try_load->();
-  if (!$need_sudo) {
-    system "cpan -i $m" and $need_sudo = 1;
-  }
-
-  if ($need_sudo) {
-    system "sudo cpan -i $m" and die "Cannot install module '$m'.\n";
-  }
-  $try_load->() or die "Cannot load module '$m'.\n";
-}
-
-INIT {
-  load_module 'Data::Section::Simple', 'get_data_section';
-  load_module 'File::HomeDir';
-  load_module 'File::Slurp', 'read_file', 'write_file';
-  load_module 'Text::Diff', 'diff';
-  load_module 'File::Which';  # Loaded so that config fragments can REQUIRE which('program')
-}
-
 sub print_usage {
   my ($is_help) = @_;
   pod2usage( { -msg => "update_config: Automatic updates of a linux configuration.\n",
@@ -52,14 +23,70 @@ sub print_usage {
              });
 }
 
+my %flags;
+my @orig_argv;
+BEGIN {
+  @orig_argv = @ARGV;
+  GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root', 'export', 'dir=s') or print_usage(0);
+  print_usage(1) if $flags{help};
+  print_usage(0) if @ARGV;
+}
+
+my $need_sudo = 0;
+
+sub try_load {
+  my ($m, @args) = @_;
+  eval "require $m" or return 0;
+  $m->import(@args);
+  return 1;
+}
+
+my $has_local_lib = '';
+
+sub load_module {
+  my ($m, @args) = @_;
+  return 1 if try_load($m, @args);
+
+  # We try to load local::lib if we need to install a module.
+  # If we don’t have local::lib, we won’t install it as that might require a
+  # sudo and, at that point, that defeats the points of using local::lib in the
+  # first place.
+  if (!$has_local_lib) {
+    $ENV{PERL_MM_USE_DEFAULT} = 1;  # Used so that cpan don’t ask questions.
+    if (try_load('local::lib')) {
+      $has_local_lib = '-I';
+      print "Successfully loaded local::lib\n" unless $flags{silent};
+      # We try to load the module again, in case it was already installed locally.
+      return 1 if try_load($m, @args);
+    } else {
+      $has_local_lib = ' ';  # true but useless in the command line below.
+      print "Failed to load local::lib\n" unless $flags{silent};
+    }
+  }
+
+  # Now, if we have set-up local::lib these will be installed locally otherwise
+  # we try to install them system-wide, which might require the use of sudo.
+
+  if (!$need_sudo) {
+    system "cpan ${has_local_lib} -i $m" and $need_sudo = 1;
+  }
+  if ($need_sudo) {
+    system "sudo cpan -i $m" and die "Cannot install module '$m'.\n";
+  }
+  try_load($m, @args) or die "Cannot load module '$m'.\n";
+}
+
+# We try to load and, if necessary, instal non-standard modules.
+INIT {
+  load_module 'Data::Section::Simple', 'get_data_section';
+  load_module 'File::HomeDir';
+  load_module 'File::Slurp', 'read_file', 'write_file';
+  load_module 'Text::Diff', 'diff';
+  load_module 'File::Which';  # Loaded so that config fragments can REQUIRE which('program')
+}
+
 use constant DEFAULT_COMMENTS_CHAR => '#';
 use constant DEFAULT_GUARD_STRING  => 'AUTO-CONFIG';
-
-my %flags;
-my @orig_argv = @ARGV;
-GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root', 'export', 'dir=s') or print_usage(0);
-print_usage(1) if $flags{help};
-print_usage(0) if @ARGV;
 
 sub get_home_dir {
   return File::HomeDir->my_home
