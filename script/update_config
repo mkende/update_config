@@ -179,8 +179,7 @@ sub get_one_file_options {
     $$conf{make_executable} = 1;
     return 1;
   } elsif ($$file =~ s/^REQUIRE\s+(.*?)(?:\s*#\s*(.*))??\n+//) {
-    $$conf{require} = $1;
-    $$conf{require_comment} = $2 if $2;
+    push @{$$conf{require}}, [$1, $2];
     return 1;
   } elsif ($$file =~ s/^FILENAME\s+(.*?)\s*\n+//) {
     $$conf{filename} = $1;
@@ -252,16 +251,17 @@ for my $d (@config_dirs) {
   read_config_files($d, $config_files);
 }
 my $need_root;
-for my $file (sort keys %{$config_files}) {
+FILE: for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
   my $content = $config_files->{$file};
   my %conf = parse_file_conf($content);
   my $target = $conf{filename} // $file;
   my $display_name = $target . ($conf{guard_suffix} ? ' ('.$conf{guard_suffix}.')' : '');
-  if ($conf{require} and not eval $conf{require}) {
-    die "Error while executing 'require' guard for ${display_name} '$conf{require}': $@.\n" if $@;
-    printf "Skipping due to 'require' guard%s: %s\n",
-        ($conf{require_comment} ? ' ('.$conf{require_comment}.')' : ''), $display_name;
-    next;
+  for my $r (@{$conf{require}}) {
+    if (not eval $r->[0]) {
+      die "Error while executing 'require' guard for ${display_name} '$r->[0]': $@.\n" if $@;
+      printf "Skipping %s due to require guard%s\n", $display_name, ($r->[1] ? ': '.$r->[1] : '') unless $flags{silent};
+      next FILE;
+    }
   }
   my ($mode, $in_path, $out_path) = parse_file_name($target);
   if ($flags{list}) {
