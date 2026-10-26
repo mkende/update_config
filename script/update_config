@@ -83,7 +83,7 @@ sub load_module {
   try_load($m, @args) or die "Cannot load module '$m'.\n";
 }
 
-# We try to load and, if necessary, instal non-standard modules.
+# We try to load and, if necessary, install non-standard modules.
 INIT {
   load_module 'Data::Section::Simple', 'get_data_section';
   load_module 'File::HomeDir';
@@ -275,19 +275,13 @@ if ($flags{export}) {
 
 my $config_files = {};
 $config_files = get_data_section() unless $flags{pack};  # We don’t read __DATA__ if we’re packing content anyway.
-my @config_dirs;
-if ($flags{dir}) {
-  @config_dirs = ($flags{dir});
-} else {
-  @config_dirs = (catfile($FindBin::Bin, 'config.d'), catfile(get_home_dir(), '.config/update_config'));
-}
-for my $d (@config_dirs) {
-  next if not -d $d;
-  read_config_files($d, $config_files);
-}
+my $config_dir = $flags{dir} // catfile($ENV{XDG_CONFIG_HOME} || catfile(get_home_dir(), '.config'), 'update_config');
+# In --pack mode, STDOUT is the packed script so we report on STDERR instead.
+printf {$flags{pack} ? \*STDERR : \*STDOUT} "Reading configuration from: %s\n", $config_dir unless $flags{silent};
+read_config_files($config_dir, $config_files) if -d $config_dir;
 
 # We print our own script to STDOUT if we are in --pack mode.
-print read_file($FindBin::Script) if $flags{pack};
+print read_file(catfile($FindBin::RealBin, $FindBin::RealScript)) if $flags{pack};
 
 my $need_root;
 FILE: for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
@@ -353,9 +347,25 @@ if ($need_root && !$flags{'no-root'}) {
 
 =pod
 
+=encoding utf8
+
+=head1 NAME
+
+update_config - Deploy configuration fragments (dotfiles, etc.) locally or on
+remote hosts.
+
 =head1 SYNOPSIS
 
-update_config [--test] [--help] [--diff] [--silent] [--list]
+update_config [--test] [--help] [--diff] [--silent] [--list] [--dir directory]
+[--root|--no-root] [--export] [--pack]
+
+=head1 DESCRIPTION
+
+The program reads configuration fragments from the
+F<$XDG_CONFIG_HOME/update_config> directory (F<~/.config/update_config> when
+C<XDG_CONFIG_HOME> is not set) and all its subdirectories, as well as the
+fragments embedded in the script itself by the C<--pack> option. A fragment
+from the directory replaces an embedded fragment with the same name.
 
 =head1 OPTIONS
 
@@ -382,10 +392,10 @@ abbreviated down to a single character.
 
   --dir directory   Process only the configuration files in the given
            directory and its subdirectories, instead of those from the
-           default paths.
+           default path.
 
   --pack  Write on the standard output a version of the script where all the
-          config fragments are embedded. To be used typicaly with:
+          config fragments are embedded. To be used typically with:
             update_config --pack | ssh user@host perl -- - --no-root
           or just
             update_config --pack | ssh host perl
