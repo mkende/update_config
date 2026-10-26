@@ -141,14 +141,14 @@ sub read_content {
     return ('', '', '');
   }
   open (my $fh, ($mode eq 'file' ? '<' : '-|'), $file) or die "Cannot open '$file' for read: $!.\n";
-  my $status = $$conf{entire_file} ? 'inside' : 'before';
+  my $status = $conf->{entire_file} ? 'inside' : 'before';
   my ($before_content, $old_content, $after_content) = ('', '', '');
   while (my $l = <$fh>) {
-    if ($status eq 'before' && $l ne $$conf{start_marker}) {
+    if ($status eq 'before' && $l ne $conf->{start_marker}) {
       $before_content .= $l;
     } elsif ($status eq 'before') {
       $status = 'inside';
-    } elsif ($status eq 'inside' && $l ne $$conf{end_marker}) {
+    } elsif ($status eq 'inside' && $l ne $conf->{end_marker}) {
       $old_content .= $l;
     } elsif ($status eq 'inside') {
       $status = 'after';
@@ -156,10 +156,10 @@ sub read_content {
       $after_content .= $l;
     }
   }
-  if ($$conf{is_prefix} && $status eq 'before') {
+  if ($conf->{is_prefix} && $status eq 'before') {
     ($before_content, $after_content) = ('', $before_content);
   }
-  die "Missing closing tag in '$file'.\n" if $status eq 'inside' and not $$conf{entire_file};
+  die "Missing closing tag in '$file'.\n" if $status eq 'inside' and not $conf->{entire_file};
   close $fh;
   return ($before_content, $old_content, $after_content);
 }
@@ -174,54 +174,54 @@ sub write_content {
   }
   open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
   print $fh $content;
-  if ($$conf{make_executable}) {
+  if ($conf->{make_executable}) {
     my $current_mode = (stat $fh)[2] & 07777;
     chmod($current_mode | 0111, $fh);
   }
   close $fh or die "Error writing '$file': $!.\n";
-  chmod oct($$conf{perm}), $file if need_perm_update($file, $mode, $conf);
+  chmod oct($conf->{perm}), $file if need_perm_update($file, $mode, $conf);
 }
 
 sub need_perm_update {
   my ($file, $mode, $conf) = @_;
-  return 0 if not exists $$conf{perm};
+  return 0 if not exists $conf->{perm};
   return 0 if $mode ne 'file';
   my $current = (stat $file)[2] & 07777;
-  return $current != oct($$conf{perm});
+  return $current != oct($conf->{perm});
 }
 
 sub get_one_file_options {
   my ($file, $conf) = @_;
   if ($$file =~ s/^COMMENTS CHAR\s+(.*?)\s*\n+//) {
-    $$conf{comments_char} = $1;
+    $conf->{comments_char} = $1;
     return 1;
   } elsif ($$file =~ s/GUARD SUFFIX\s+(.*?)\s*\n+//) {
-    $$conf{guard_suffix} = $1;
+    $conf->{guard_suffix} = $1;
     return 1;
   } elsif ($$file =~ s/^POST UPDATE\s+(.*?)\s*\n+//) {
-    $$conf{post_update} = $1;
+    $conf->{post_update} = $1;
     return 1;
   } elsif ($$file =~ s/^IS PREFIX\s*\n+//) {
-    $$conf{is_prefix} = 1;
+    $conf->{is_prefix} = 1;
     return 1;
   } elsif ($$file =~ s/^NEED ROOT\s*\n+//) {
-    $$conf{need_root} = 1;
+    $conf->{need_root} = 1;
     return 1;
   } elsif ($$file =~ s/^ENTIRE FILE\s*\n+//) {
-    $$conf{entire_file} = 1;
+    $conf->{entire_file} = 1;
     return 1;
   } elsif ($$file =~ s/^MAKE EXECUTABLE\s*\n+//) {
-    $$conf{make_executable} = 1;
+    $conf->{make_executable} = 1;
     return 1;
   } elsif ($$file =~ s/^REQUIRE\s+(.*?)(?:\s*#\s*(.*))??\n+//) {
-    push @{$$conf{require}}, [$1, $2];
+    push @{$conf->{require}}, [$1, $2];
     return 1;
   } elsif ($$file =~ s/^FILENAME\s+(.*?)\s*\n+//) {
-    $$conf{filename} = $1;
+    $conf->{filename} = $1;
     return 1;
   } elsif ($$file =~ s/^PERM\s+(.*?)\s*\n+//) {
     # TODO: validate that the mode is a correct octal value.
-    $$conf{perm} = $1;
+    $conf->{perm} = $1;
     return 1;
   } elsif ($$file =~ s/^REM\s+.*\n+//) {
     return 1;
