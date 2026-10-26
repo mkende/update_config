@@ -61,22 +61,26 @@ sub pack_fragments {
 }
 
 {
-  my ($packed, $t) =
-      pack_fragments('in,out' => "content\n", 'other [x]' => "FILENAME .bar\nother\n");
+  my ($packed, $t) = pack_fragments(
+    'in,out' => "content\n",
+    'other [x]' => "FILENAME .bar\nother\n",
+    'no_newline' => 'last line');
   my $export_dir = catfile($t->root, 'export');
   make_path($export_dir);
   my $r = $t->run({script => $packed, cwd => $export_dir}, '--export');
   is($r->{exit}, 0, '--export: success');
-  # The packed fragments have an extra empty line at the end, which is ignored
-  # when they are applied.
-  like(
+  is(
     UpdateConfigTest::read_file(catfile($export_dir, 'in_out')),
-    qr/\AFILENAME[ ]in,out\ncontent\n+\z/x,
+    "FILENAME in,out\ncontent\n",
     '--export: FILENAME added and name cleaned');
-  like(
+  is(
     UpdateConfigTest::read_file(catfile($export_dir, 'other [x]')),
-    qr/\AFILENAME[ ][.]bar\nother\n+\z/x,
+    "FILENAME .bar\nother\n",
     '--export: existing FILENAME kept');
+  is(
+    UpdateConfigTest::read_file(catfile($export_dir, 'no_newline')),
+    "FILENAME no_newline\nlast line\n",
+    '--export: final newline added when packing');
 }
 
 done_testing;
