@@ -14,10 +14,11 @@ use FindBin;
 use Getopt::Long 'GetOptions';
 use Pod::Usage 'pod2usage';
 
+# With --help, prints the entire documentation, through perldoc when available.
 sub print_usage {
   my ($is_help) = @_;
   pod2usage( { -msg => "update_config: Automatic updates of a linux configuration.\n",
-               -verbose => $is_help ? 1 : 0,
+               -verbose => $is_help ? 2 : 0,
                -exitval => $is_help ? 0 : 2,
                -output => $is_help ? \*STDOUT : \*STDERR,
              });

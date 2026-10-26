@@ -38,3 +38,6 @@ requires 'File::HomeDir';
 requires 'File::Slurp';
 requires 'File::Which';
 requires 'Text::Diff';
+
+# Used by --help to paginate the documentation.
+recommends 'Pod::Perldoc';
