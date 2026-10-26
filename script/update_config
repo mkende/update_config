@@ -194,43 +194,46 @@ sub need_perm_update {
   return $current != oct($conf->{perm});
 }
 
-sub get_one_file_options {
-  my ($file, $conf) = @_;
-  if ($$file =~ s/^COMMENTS CHAR\s+(.*?)\s*\n+//) {
-    $conf->{comments_char} = $1;
-    return 1;
-  } elsif ($$file =~ s/GUARD SUFFIX\s+(.*?)\s*\n+//) {
-    $conf->{guard_suffix} = $1;
-    return 1;
-  } elsif ($$file =~ s/^POST UPDATE\s+(.*?)\s*\n+//) {
-    $conf->{post_update} = $1;
-    return 1;
-  } elsif ($$file =~ s/^IS PREFIX\s*\n+//) {
-    $conf->{is_prefix} = 1;
-    return 1;
-  } elsif ($$file =~ s/^NEED ROOT\s*\n+//) {
-    $conf->{need_root} = 1;
-    return 1;
-  } elsif ($$file =~ s/^ENTIRE FILE\s*\n+//) {
-    $conf->{entire_file} = 1;
-    return 1;
-  } elsif ($$file =~ s/^MAKE EXECUTABLE\s*\n+//) {
-    $conf->{make_executable} = 1;
-    return 1;
-  } elsif ($$file =~ s/^REQUIRE\s+(.*?)(?:\s*#\s*(.*))??\n+//) {
-    push @{$conf->{require}}, [$1, $2];
-    return 1;
-  } elsif ($$file =~ s/^FILENAME\s+(.*?)\s*\n+//) {
-    $conf->{filename} = $1;
-    return 1;
-  } elsif ($$file =~ s/^PERM\s+(.*?)\s*\n+//) {
-    # TODO: validate that the mode is a correct octal value.
-    $conf->{perm} = $1;
-    return 1;
-  } elsif ($$file =~ s/^REM\s+.*\n+//) {
-    return 1;
+# The directives that can appear at the beginning of a fragment. Each entry
+# gives the key of the fragment configuration where the directive is stored
+# (if any) and how: `flag` directives take no value and set their key to 1,
+# `multiple` directives can be repeated and store their values in a list, the
+# others store their value directly.
+my %DIRECTIVES = (
+  'COMMENTS CHAR' => {key => 'comments_char'},
+  'ENTIRE FILE' => {key => 'entire_file', flag => 1},
+  'FILENAME' => {key => 'filename'},
+  'GUARD SUFFIX' => {key => 'guard_suffix'},
+  'IS PREFIX' => {key => 'is_prefix', flag => 1},
+  'MAKE EXECUTABLE' => {key => 'make_executable', flag => 1},
+  'NEED ROOT' => {key => 'need_root', flag => 1},
+  # TODO: validate that the mode is a correct octal value.
+  'PERM' => {key => 'perm'},
+  'POST UPDATE' => {key => 'post_update'},
+  'REM' => {},
+  'REQUIRE' => {key => 'require', multiple => 1},
+);
+my $DIRECTIVE_RE = join '|', map { quotemeta } sort keys %DIRECTIVES;
+
+# Applies the directive in the given line to the fragment configuration.
+# Returns false if the line is not a valid directive.
+sub parse_directive {
+  my ($line, $conf) = @_;
+  my ($name, $value) = $line =~ m/^(${DIRECTIVE_RE}) (?: \s+ (\S.*?) )? \s*$/x or return 0;
+  my $directive = $DIRECTIVES{$name};
+  # Flag directives must not have a value and the other ones must have one.
+  return 0 if $directive->{flag} ? defined $value : not defined $value;
+  my $key = $directive->{key};
+  if (not defined $key) {
+    # Nothing to do, this is a comment.
+  } elsif ($directive->{flag}) {
+    $conf->{$key} = 1;
+  } elsif ($directive->{multiple}) {
+    push @{$conf->{$key}}, $value;
+  } else {
+    $conf->{$key} = $value;
   }
-  return 0;
+  return 1;
 }
 
 sub parse_file_conf {
@@ -238,7 +241,12 @@ sub parse_file_conf {
   my %conf;
   $file =~ s/\n{2,}$/\n/;
   $file =~ s/^\n+//;
-  while(get_one_file_options(\$file, \%conf)) {}
+  # Each directive is on its own line, they can be followed by empty lines.
+  while ($file =~ m/\A ([^\n]*) \n+/x) {
+    my ($line, $end) = ($1, $LAST_MATCH_END[0]);
+    last if not parse_directive($line, \%conf);
+    substr $file, 0, $end, '';
+  }
   my $comments_decorator = ($conf{comments_char} // DEFAULT_COMMENTS_CHAR) x 3;
   my $guard = DEFAULT_GUARD_STRING . (exists $conf{guard_suffix} ? ':'.$conf{guard_suffix} : '');
   $conf{start_marker} = $comments_decorator.$guard.' START'.$comments_decorator."\n";
@@ -301,9 +309,10 @@ FILE: for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
   my $target = $conf{filename} // $file;
   my $display_name = $target . ($conf{guard_suffix} ? ' ('.$conf{guard_suffix}.')' : '');
   for my $r (@{$conf{require}}) {
-    if (not eval $r->[0]) {
-      die "Error while executing 'require' guard for ${display_name} '$r->[0]': $@.\n" if $@;
-      printf "Skipping %s due to require guard%s\n", $display_name, ($r->[1] ? ': '.$r->[1] : '') unless $flags{silent};
+    my ($expr, $reason) = split /\s*#\s*/, $r, 2;
+    if (not eval $expr) {
+      die "Error while executing 'require' guard for ${display_name} '${expr}': $@.\n" if $@;
+      printf "Skipping %s due to require guard%s\n", $display_name, ($reason ? ': '.$reason : '') unless $flags{silent};
       next FILE;
     }
   }
