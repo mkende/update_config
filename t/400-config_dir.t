@@ -44,6 +44,31 @@ our $VERSION = 0.01;
 
 {
   my $t = UpdateConfigTest->new;
+  my $xdg = catfile($t->root, 'xdg');
+  my $dir = $t->home_path('.update_config');
+  $t->write_home_file('.update_config/file', "content\n");
+  $t->add_fragment('ignored', "content\n");
+  UpdateConfigTest::write_file(catfile($xdg, 'update_config', 'ignored_xdg'), "content\n");
+  my $r = $t->run({env => {XDG_CONFIG_HOME => $xdg}});
+  like(
+    $r->{stdout},
+    qr/\AReading[ ]configuration[ ]from:[ ]\Q${dir}\E$/mx,
+    '~/.update_config: directory printed');
+  is($t->read_home_file('file'), guarded("content\n"), '~/.update_config: fragment applied');
+  is($t->read_home_file('ignored'), undef, '~/.update_config: ~/.config/update_config ignored');
+  is($t->read_home_file('ignored_xdg'), undef, '~/.update_config: XDG_CONFIG_HOME ignored');
+
+  my $other = catfile($t->root, 'other_dir');
+  UpdateConfigTest::write_file(catfile($other, 'other'), "content\n");
+  $r = $t->run('--dir', $other);
+  like(
+    $r->{stdout},
+    qr/\AReading[ ]configuration[ ]from:[ ]\Q${other}\E$/mx,
+    '~/.update_config: --dir takes precedence');
+}
+
+{
+  my $t = UpdateConfigTest->new;
   my $dir = catfile($t->root, 'other_dir');
   UpdateConfigTest::write_file(catfile($dir, 'file'), "content\n");
   $t->add_fragment('ignored', "content\n");
