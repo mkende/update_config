@@ -42,7 +42,7 @@ my $need_sudo = 0;
 
 sub try_load {
   my ($m, @args) = @_;
-  eval "require $m" or return 0;
+  eval "require $m" or return 0;  ## no critic (ProhibitStringyEval)
   $m->import(@args);
   return 1;
 }
@@ -299,7 +299,7 @@ sub check_requirements {
   my ($conf, $display_name) = @_;
   for my $r (@{$conf->{require}}) {
     my ($expr, $reason) = split /\s*#\s*/, $r, 2;
-    next if eval $expr;
+    next if eval $expr;  ## no critic (ProhibitStringyEval)
     die "Error while executing 'require' guard for ${display_name} '${expr}': $@.\n" if $@;
     printf "Skipping %s due to require guard%s\n", $display_name, ($reason ? ': '.$reason : '') unless $flags{silent};
     return 0;
