@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Tests the options that can be specified at the beginning of a fragment.
+# Tests the directives that can be specified at the beginning of a fragment.
 
 use strict;
 use warnings;
