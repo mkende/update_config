@@ -1,17 +1,24 @@
-personal_ws-1.1 en 47 
+personal_ws-1.1 en 62 
+Alacritty
 CONFIG
+CreateNewWindow
 GetOptions
 HomeDir
+INI
 INIT
+JSON
 Mlocal
 ProhibitStringyEval
 STDERR
 STDOUT
 TODO
+TOML
 UpdateConfig
 WEXITSTATUS
 WSL
 XDG
+YAML
+alacritty
 bashrc
 catfile
 chdir
@@ -19,6 +26,7 @@ conf
 config
 cpan
 crontab
+ctx
 cwd
 deco
 dev
@@ -28,12 +36,15 @@ dotfiles
 env
 expr
 fakename
+ini
 iptables
+json
 linux
 macos
 perl
 perldoc
 pre
+refaddr
 stderr
 stdin
 stdout
@@ -41,8 +52,12 @@ subdirectories
 sudo
 tempdir
 tmux
+toml
+ui
 uname
 undef
+url
 usr
 utf
 wslview
+yaml

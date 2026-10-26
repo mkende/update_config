@@ -95,7 +95,13 @@ sub run {
   my @cmd = ($EXECUTABLE_NAME, defined $opts{stdin} ? '-' : $opts{script} // $script, @args);
   my $pid = fork // die "Cannot fork: $OS_ERROR\n";
   if ($pid == 0) {
-    local %ENV = (%ENV, HOME => $self->home, XDG_CONFIG_HOME => undef, %{$opts{env} // {}});
+    local %ENV = (
+      %ENV,
+      HOME => $self->home,
+      XDG_CONFIG_HOME => undef,
+      XDG_STATE_HOME => undef,
+      %{$opts{env} // {}}
+    );
     delete @ENV{grep { !defined $ENV{$_} } keys %ENV};
     chdir($opts{cwd} // $self->{root}) or die "Cannot chdir: $OS_ERROR\n";
     open STDIN, '<', $opts{stdin} // '/dev/null' or die "Cannot open stdin: $OS_ERROR\n";

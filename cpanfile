@@ -41,3 +41,10 @@ requires 'Text::Diff';
 
 # Used by --help to paginate the documentation.
 recommends 'Pod::Perldoc';
+
+# Used by the MERGE directive. These are loaded (and installed if needed) by
+# script/update_config only when a fragment uses the corresponding format.
+recommends 'Config::Tiny';
+recommends 'JSON::PP';
+recommends 'TOML::Tiny';
+recommends 'YAML::PP';
