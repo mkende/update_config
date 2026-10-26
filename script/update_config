@@ -263,7 +263,8 @@ sub read_config_files {
   return;
 }
 
-if ($flags{export}) {
+# Writes in the current directory the fragments embedded in the script.
+sub export_fragments {
   my $internal_files = get_data_section();
   while (my ($file, $content) = each %{$internal_files}) {
     my %conf = parse_file_conf($content);
@@ -276,82 +277,116 @@ if ($flags{export}) {
     print "Exporting: $file\n";
     write_file($file, $content) or die "Cannot write file '$file': $!\n";
   }
-  exit 0;
+  return;
 }
 
-my $config_files = {};
-$config_files = get_data_section() unless $flags{pack};  # We don’t read __DATA__ if we’re packing content anyway.
-my $config_dir = $flags{dir} // catfile($ENV{XDG_CONFIG_HOME} || catfile(get_home_dir(), '.config'), 'update_config');
-print "Reading configuration from: ${config_dir}\n" unless $flags{silent} or $flags{pack};
-read_config_files($config_dir, $config_files) if -d $config_dir;
-
-# We print our own script to STDOUT if we are in --pack mode.
-print read_file(catfile($FindBin::RealBin, $FindBin::RealScript)) if $flags{pack};
-
-my $need_root;
-FILE: for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
-  my $content = $config_files->{$file};
-  if ($flags{pack}) {
+# Prints on STDOUT our own script, followed by all the given fragments, so that
+# they are embedded in its __DATA__ section.
+sub pack_fragments {
+  my ($config_files) = @_;
+  print read_file(catfile($FindBin::RealBin, $FindBin::RealScript));
+  for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
+    my $content = $config_files->{$file};
     # The next "@@" header must start on its own line.
     $content .= "\n" if $content ne '' and $content !~ m/\n\z/;
     print "@@ ${file}\n${content}";
-    next;
   }
+  return;
+}
+
+# Returns true if all the REQUIRE guards of the fragment are verified.
+sub check_requirements {
+  my ($conf, $display_name) = @_;
+  for my $r (@{$conf->{require}}) {
+    my ($expr, $reason) = split /\s*#\s*/, $r, 2;
+    next if eval $expr;
+    die "Error while executing 'require' guard for ${display_name} '${expr}': $@.\n" if $@;
+    printf "Skipping %s due to require guard%s\n", $display_name, ($reason ? ': '.$reason : '') unless $flags{silent};
+    return 0;
+  }
+  return 1;
+}
+
+# Writes the new content of the target file and executes the POST UPDATE
+# command if any.
+sub update_target {
+  my ($mode, $out_path, $before, $after, $conf) = @_;
+  my $content;
+  if ($conf->{entire_file}) {
+    $content = $conf->{content};
+  } else {
+    $content = $before.$conf->{start_marker}.$conf->{content}.$conf->{end_marker}.$after;
+  }
+  write_content($mode, $out_path, $content, $conf);
+  if ($conf->{post_update}) {
+    my $cmd = $conf->{post_update} =~ s/\$@/$out_path/gr;
+    system $cmd;
+  }
+  return;
+}
+
+# Applies the given fragment (depending on the command line flags). Returns
+# true if the fragment needs root and was not applied.
+sub apply_fragment {
+  my ($file, $content) = @_;
   my %conf = parse_file_conf($content);
   my $target = $conf{filename} // $file;
   my $display_name = $target . ($conf{guard_suffix} ? ' ('.$conf{guard_suffix}.')' : '');
-  for my $r (@{$conf{require}}) {
-    my ($expr, $reason) = split /\s*#\s*/, $r, 2;
-    if (not eval $expr) {
-      die "Error while executing 'require' guard for ${display_name} '${expr}': $@.\n" if $@;
-      printf "Skipping %s due to require guard%s\n", $display_name, ($reason ? ': '.$reason : '') unless $flags{silent};
-      next FILE;
-    }
-  }
+  return 0 if not check_requirements(\%conf, $display_name);
   my ($mode, $in_path, $out_path) = parse_file_name($target);
   if ($flags{list}) {
     print "$in_path\n";
-    next;
+    return 0;
   }
   my ($before, $old_content, $after) = read_content($mode, $in_path, \%conf);
   if ($old_content eq $conf{content} and not need_perm_update($out_path, $mode, \%conf)) {
     print "Nothing to do for: $display_name\n" unless $flags{silent};
-  } else {
-    if ($flags{diff}) {
-      my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
-      print "Diff for: $display_name\n$diff";
-    }
-    if ($conf{need_root} and not $flags{root}) {
-      $need_root = 1;
-      next;
-    } elsif ($flags{root} and not $conf{need_root}) {
-      next;
-    }
-    if (not $flags{test}) {
-      my $content;
-      if ($conf{entire_file}) {
-        $content = $conf{content};
-      } else {
-        $content = $before.$conf{start_marker}.$conf{content}.$conf{end_marker}.$after;
-      }
-      write_content($mode, $out_path, $content, \%conf);
-      if ($conf{post_update}) {
-        my $cmd = $conf{post_update} =~ s/\$@/$out_path/gr;
-        system $cmd;
-      }
-    }
-    print "Updated: ${display_name}\n" unless $flags{silent};
+    return 0;
   }
+  if ($flags{diff}) {
+    my $diff = diff(\$old_content, \$conf{content}, {CONTEXT => 0});
+    print "Diff for: $display_name\n$diff";
+  }
+  return 1 if $conf{need_root} and not $flags{root};
+  return 0 if $flags{root} and not $conf{need_root};
+  update_target($mode, $out_path, $before, $after, \%conf) if not $flags{test};
+  print "Updated: ${display_name}\n" unless $flags{silent};
+  return 0;
 }
 
-if ($need_root && !$flags{'no-root'}) {
+sub main {
+  if ($flags{export}) {
+    export_fragments();
+    return;
+  }
+
+  my $config_files = {};
+  $config_files = get_data_section() unless $flags{pack};  # We don’t read __DATA__ if we’re packing content anyway.
+  my $config_dir = $flags{dir} // catfile($ENV{XDG_CONFIG_HOME} || catfile(get_home_dir(), '.config'), 'update_config');
+  print "Reading configuration from: ${config_dir}\n" unless $flags{silent} or $flags{pack};
+  read_config_files($config_dir, $config_files) if -d $config_dir;
+
+  if ($flags{pack}) {
+    pack_fragments($config_files);
+    return;
+  }
+
+  my $need_root = 0;
+  for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
+    $need_root = 1 if apply_fragment($file, $config_files->{$file});
+  }
+
+  return if not $need_root or $flags{'no-root'};
   if ($0 eq '-') {
     print "Skipping NEED_ROOT fragments for an execution from stdin\n" unless $flags{silent};
-    exit 0;
+    return;
   }
   my $script = catfile(${FindBin::RealBin}, ${FindBin::RealScript});
   system('sudo', $script, @orig_argv, '--root');
+  return;
 }
+
+main();
 
 =pod
 
