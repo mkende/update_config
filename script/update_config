@@ -14,6 +14,10 @@ use FindBin;
 use Getopt::Long 'GetOptions';
 use Pod::Usage 'pod2usage';
 
+# This must be kept in sync with the version in lib/App/UpdateConfig.pm (the
+# script cannot use that module as it must work as a standalone file).
+our $VERSION = '0.01';
+
 # With --help, prints the entire documentation, through perldoc when available.
 sub print_usage {
   my ($is_help) = @_;
