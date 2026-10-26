@@ -58,7 +58,6 @@ sub load_module {
   # sudo and, at that point, that defeats the points of using local::lib in the
   # first place.
   if (!$has_local_lib) {
-    $ENV{PERL_MM_USE_DEFAULT} = 1;  # Used so that cpan don’t ask questions.
     # local::lib prints some configuration and exit the program when $0 is '-' (meant for `perl -Mlocal::lib`).
     local $0 = $0 eq '-' ? 'fakename.pl' : $0;
     if (try_load('local::lib')) {
@@ -75,6 +74,7 @@ sub load_module {
   # Now, if we have set-up local::lib these will be installed locally otherwise
   # we try to install them system-wide, which might require the use of sudo.
 
+  local $ENV{PERL_MM_USE_DEFAULT} = 1;  # Used so that cpan don’t ask questions.
   if (!$need_sudo) {
     system "cpan ${has_local_lib} -i $m" and $need_sudo = 1;
   }
@@ -96,6 +96,7 @@ INIT {
 
 use constant DEFAULT_COMMENTS_CHAR => '#';
 use constant DEFAULT_GUARD_STRING  => 'AUTO-CONFIG';
+use constant COMMENTS_CHAR_COUNT   => 3;  # In the guard markers.
 
 sub get_home_dir {
   return File::HomeDir->my_home
@@ -120,7 +121,7 @@ sub parse_file_name {
   $raw_path = clean_output_path($raw_path);
   my @file_part = split /,/, $raw_path;
   my $mode = @file_part == 1 ? 'file' : 'pipe';
-  die "Invalid file specification: '$raw_path'." if @file_part < 1 || @file_part > 2;
+  die "Invalid file specification: '$raw_path'.\n" if @file_part < 1 || @file_part > 2;
   if (@file_part == 1) {
     my $path;
     if ($file_part[0] =~ m{^/}) {
@@ -134,37 +135,28 @@ sub parse_file_name {
   }
 }
 
-# Verifies that file contains the given content between the start and end
-# markers. Otherwise update the content of the file so that it does.
+# Returns the current content of the target, split in three parts: the content
+# before the guard markers, between them, and after them.
 sub read_content {
   my ($mode, $file, $conf) = @_;
   if ($mode eq 'file' and not -e $file) {
     return ('', '', '');
   }
   open (my $fh, ($mode eq 'file' ? '<' : '-|'), $file) or die "Cannot open '$file' for read: $!.\n";
-  my $status = $conf->{entire_file} ? 'inside' : 'before';
-  my ($before_content, $old_content, $after_content) = ('', '', '');
-  while (my $l = <$fh>) {
-    if ($status eq 'before' && $l ne $conf->{start_marker}) {
-      $before_content .= $l;
-    } elsif ($status eq 'before') {
-      $status = 'inside';
-    } elsif ($status eq 'inside' && $l ne $conf->{end_marker}) {
-      $old_content .= $l;
-    } elsif ($status eq 'inside') {
-      $status = 'after';
-    } else {
-      $after_content .= $l;
-    }
-  }
-  if ($conf->{is_prefix} && $status eq 'before') {
-    ($before_content, $after_content) = ('', $before_content);
-  }
-  die "Missing closing tag in '$file'.\n" if $status eq 'inside' and not $conf->{entire_file};
+  my @lines = <$fh>;
   # Closing a pipe fails if the command fails, which is expected for some of
   # them (e.g. `crontab -l` when there is no crontab yet).
   close $fh or $mode eq 'pipe' or die "Cannot close '$file': $!.\n";
-  return ($before_content, $old_content, $after_content);
+
+  return ('', join('', @lines), '') if $conf->{entire_file};
+  my ($start) = grep { $lines[$_] eq $conf->{start_marker} } 0 .. $#lines;
+  if (not defined $start) {
+    return $conf->{is_prefix} ? ('', '', join('', @lines)) : (join('', @lines), '', '');
+  }
+  my ($end) = grep { $lines[$_] eq $conf->{end_marker} } $start + 1 .. $#lines;
+  die "Missing closing tag in '$file'.\n" if not defined $end;
+  return (join('', @lines[0 .. $start - 1]), join('', @lines[$start + 1 .. $end - 1]),
+          join('', @lines[$end + 1 .. $#lines]));
 }
 
 sub write_content {
@@ -247,7 +239,7 @@ sub parse_file_conf {
     last if not parse_directive($line, \%conf);
     substr $file, 0, $end, '';
   }
-  my $comments_decorator = ($conf{comments_char} // DEFAULT_COMMENTS_CHAR) x 3;
+  my $comments_decorator = ($conf{comments_char} // DEFAULT_COMMENTS_CHAR) x COMMENTS_CHAR_COUNT;
   my $guard = DEFAULT_GUARD_STRING . (exists $conf{guard_suffix} ? ':'.$conf{guard_suffix} : '');
   $conf{start_marker} = $comments_decorator.$guard.' START'.$comments_decorator."\n";
   $conf{end_marker} = $comments_decorator.$guard.' END'.$comments_decorator."\n";
