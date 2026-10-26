@@ -276,8 +276,7 @@ if ($flags{export}) {
 my $config_files = {};
 $config_files = get_data_section() unless $flags{pack};  # We don’t read __DATA__ if we’re packing content anyway.
 my $config_dir = $flags{dir} // catfile($ENV{XDG_CONFIG_HOME} || catfile(get_home_dir(), '.config'), 'update_config');
-# In --pack mode, STDOUT is the packed script so we report on STDERR instead.
-printf {$flags{pack} ? \*STDERR : \*STDOUT} "Reading configuration from: %s\n", $config_dir unless $flags{silent};
+print "Reading configuration from: ${config_dir}\n" unless $flags{silent} or $flags{pack};
 read_config_files($config_dir, $config_files) if -d $config_dir;
 
 # We print our own script to STDOUT if we are in --pack mode.
