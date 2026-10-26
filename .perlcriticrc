@@ -69,3 +69,7 @@ allow = $0 $@ $!
 
 # The constant pragma is good enough, and the script must not depend on Readonly.
 [-ValuesAndExpressions::ProhibitConstantPragma]
+
+# pod2usage exits the program.
+[Subroutines::RequireFinalReturn]
+terminal_funcs = pod2usage

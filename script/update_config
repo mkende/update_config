@@ -82,6 +82,7 @@ sub load_module {
     system "sudo cpan -i $m" and die "Cannot install module '$m'.\n";
   }
   try_load($m, @args) or die "Cannot load module '$m'.\n";
+  return 1;
 }
 
 # We try to load and, if necessary, install non-standard modules.
@@ -117,7 +118,7 @@ sub parse_file_name {
   # it in the export block.
   my ($raw_path) = @_;
   $raw_path = clean_output_path($raw_path);
-  my @file_part = split ',', $raw_path;
+  my @file_part = split /,/, $raw_path;
   my $mode = @file_part == 1 ? 'file' : 'pipe';
   die "Invalid file specification: '$raw_path'." if @file_part < 1 || @file_part > 2;
   if (@file_part == 1) {
@@ -160,7 +161,9 @@ sub read_content {
     ($before_content, $after_content) = ('', $before_content);
   }
   die "Missing closing tag in '$file'.\n" if $status eq 'inside' and not $conf->{entire_file};
-  close $fh;
+  # Closing a pipe fails if the command fails, which is expected for some of
+  # them (e.g. `crontab -l` when there is no crontab yet).
+  close $fh or $mode eq 'pipe' or die "Cannot close '$file': $!.\n";
   return ($before_content, $old_content, $after_content);
 }
 
@@ -175,18 +178,19 @@ sub write_content {
   open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
   print $fh $content;
   if ($conf->{make_executable}) {
-    my $current_mode = (stat $fh)[2] & 07777;
-    chmod($current_mode | 0111, $fh);
+    my $current_mode = (stat $fh)[2] & oct('7777');
+    chmod($current_mode | oct('111'), $fh);
   }
   close $fh or die "Error writing '$file': $!.\n";
   chmod oct($conf->{perm}), $file if need_perm_update($file, $mode, $conf);
+  return;
 }
 
 sub need_perm_update {
   my ($file, $mode, $conf) = @_;
   return 0 if not exists $conf->{perm};
   return 0 if $mode ne 'file';
-  my $current = (stat $file)[2] & 07777;
+  my $current = (stat $file)[2] & oct('7777');
   return $current != oct($conf->{perm});
 }
 
@@ -256,6 +260,7 @@ sub read_config_files {
     $content->{$_} = read_file($f) if -f $f;
   }
   closedir $dh;
+  return;
 }
 
 if ($flags{export}) {
