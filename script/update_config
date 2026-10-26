@@ -373,17 +373,17 @@ abbreviated down to a single character.
 
   --diff   Print the difference between the current configuration and what
            will be written
-  
+
   --silent Do not print the status of the configuration files (except for
            error messages).
-  
+
   --test   Do not modify the configuration files.
-  
+
   --list   Only print a list of the configuration files and exit.
 
   --root   Install only the configuration fragments that are marked as
            'NEED ROOT'.
-  
+
   --no-root  Do not attempt to install the 'NEED ROOT' fragments.
 
   --export Export in the current directory all the files that are embedded
@@ -398,8 +398,129 @@ abbreviated down to a single character.
             update_config --pack | ssh user@host perl -- - --no-root
           or just
             update_config --pack | ssh host perl
-  
+
   --help   Print this help message.
+
+=head1 FRAGMENT FILES
+
+Each fragment file describes a piece of content that should be present in a
+target file. By default, the target is the file with the same name as the
+fragment, relative to your home directory. Any suffix between brackets at the
+end of the fragment name is ignored, so that several fragments (e.g.
+F<bashrc [linux]> and F<bashrc [macos]>) can target the same file. You can
+organize the fragments in sub-directories, but only their base name is used, so
+two fragments must not have the same name. Hidden files and directories are
+ignored. Fragments are processed in alphabetical order, ignoring case.
+
+The content of the fragment is written in the target file between two guard
+lines, which look like C<###AUTO-CONFIG START###> and C<###AUTO-CONFIG END###>.
+Everything outside of these guards is left untouched, so you can still edit the
+rest of the file by hand. If the guards are not already present, the content is
+added at the end of the file, which is created if needed. When the guarded
+content is already up to date, the file is not modified at all.
+
+=head2 Directives
+
+A fragment can start with a few directives, one per line, that control how it
+is applied. The content of the fragment starts at the first line that is not a
+directive, and the empty lines following the directives are skipped. The
+supported directives are the following:
+
+=over 4
+
+=item C<FILENAME> I<path>
+
+Sets the target file, instead of using the name of the fragment. The path is
+relative to your home directory, unless it is an absolute path. The path can
+also be made of two commands separated by a comma. In that case, the current
+content is read from the output of the first command and the new content is
+passed on the input of the second one (this is useful for C<crontab -l,
+crontab ->).
+
+=item C<COMMENTS CHAR> I<char>
+
+Sets the character that starts a comment in the target file, which is used in
+the guard lines (it is repeated three times). The default is C<#>.
+
+=item C<GUARD SUFFIX> I<suffix>
+
+Adds a suffix to the guard lines, which then look like
+C<###AUTO-CONFIG:suffix START###>. You need this if several fragments target
+the same file.
+
+=item C<IS PREFIX>
+
+Adds the content at the beginning of the file instead of at the end, when the
+guards are not already present.
+
+=item C<ENTIRE FILE>
+
+Replaces the entire target file with the content of the fragment, without any
+guard lines.
+
+=item C<MAKE EXECUTABLE>
+
+Makes the target file executable.
+
+=item C<PERM> I<mode>
+
+Sets the permissions of the target file, given in octal (e.g. C<600>).
+
+=item C<NEED ROOT>
+
+Marks a fragment that must be written as root (typically a file under
+F</etc>). These fragments are applied at the end of the run, by executing the
+program again through C<sudo> with the C<--root> option.
+
+=item C<REQUIRE> I<expression> [C<#> I<reason>]
+
+Evaluates a Perl expression and skips the fragment if it is false. The optional
+reason is printed when the fragment is skipped. The expression can use the
+C<which> function from L<File::Which> as well as the variables from
+L<English>. This directive can be repeated, in which case all the expressions
+must be true.
+
+=item C<POST UPDATE> I<command>
+
+Executes a shell command after the target file has been updated. In the
+command, C<$@> is replaced by the path of the target file.
+
+=item C<REM> I<text>
+
+A comment, which is ignored.
+
+=back
+
+=head2 Examples
+
+This fragment adds some content to your F<~/.bashrc> file, but only on WSL
+hosts. The guard suffix allows to have another fragment for the same file:
+
+  FILENAME .bashrc
+  GUARD SUFFIX WSL
+  REQUIRE `uname -r` =~ /WSL/ # Not a WSL host
+
+  export BROWSER=wslview
+
+This one installs a full script in a system directory, and needs root to do so:
+
+  FILENAME /etc/network/if-pre-up.d/10-iptables-load
+  REQUIRE -d '/etc/network/if-pre-up.d' # No if-pre-up.d directory
+  NEED ROOT
+  ENTIRE FILE
+  MAKE EXECUTABLE
+
+  #!/bin/sh
+  iptables-restore < /etc/iptables.rules
+
+And this one updates a configuration file and then reloads it in the running
+program:
+
+  FILENAME .tmux.conf
+  REQUIRE which('tmux') # tmux is not installed
+  POST UPDATE tmux source-file $@
+
+  set -g prefix C-a
 
 =cut
 
