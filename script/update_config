@@ -21,19 +21,23 @@ our $VERSION = '0.01';
 # With --help, prints the entire documentation, through perldoc when available.
 sub print_usage {
   my ($is_help) = @_;
-  pod2usage( { -msg => "update_config: Automatic updates of a linux configuration.\n",
-               -verbose => $is_help ? 2 : 0,
-               -exitval => $is_help ? 0 : 2,
-               -output => $is_help ? \*STDOUT : \*STDERR,
-             });
+  pod2usage({
+    -msg => "update_config: Automatic updates of a linux configuration.\n",
+    -verbose => $is_help ? 2 : 0,
+    -exitval => $is_help ? 0 : 2,
+    -output => $is_help ? \*STDOUT : \*STDERR,
+  });
 }
 
 my %flags;
 my @orig_argv;
+
 BEGIN {
   @orig_argv = @ARGV;
-  GetOptions(\%flags, 'silent', 'diff', 'help', 'test', 'list', 'root', 'no-root',
-             'export', 'dir=s', 'pack') or print_usage(0);
+  GetOptions(
+    \%flags, 'silent', 'diff', 'help', 'test', 'list',
+    'root', 'no-root', 'export', 'dir=s', 'pack'
+  ) or print_usage(0);
   print_usage(1) if $flags{help};
   print_usage(0) if @ARGV;
   if ($flags{pack} and $0 eq '-') {
@@ -99,8 +103,8 @@ INIT {
 }
 
 use constant DEFAULT_COMMENTS_CHAR => '#';
-use constant DEFAULT_GUARD_STRING  => 'AUTO-CONFIG';
-use constant COMMENTS_CHAR_COUNT   => 3;  # In the guard markers.
+use constant DEFAULT_GUARD_STRING => 'AUTO-CONFIG';
+use constant COMMENTS_CHAR_COUNT => 3;  # In the guard markers.
 
 sub get_home_dir {
   return File::HomeDir->my_home
@@ -146,7 +150,7 @@ sub read_content {
   if ($mode eq 'file' and not -e $file) {
     return ('', '', '');
   }
-  open (my $fh, ($mode eq 'file' ? '<' : '-|'), $file) or die "Cannot open '$file' for read: $!.\n";
+  open(my $fh, ($mode eq 'file' ? '<' : '-|'), $file) or die "Cannot open '$file' for read: $!.\n";
   my @lines = <$fh>;
   # Closing a pipe fails if the command fails, which is expected for some of
   # them (e.g. `crontab -l` when there is no crontab yet).
@@ -159,8 +163,10 @@ sub read_content {
   }
   my ($end) = grep { $lines[$_] eq $conf->{end_marker} } $start + 1 .. $#lines;
   die "Missing closing tag in '$file'.\n" if not defined $end;
-  return (join('', @lines[0 .. $start - 1]), join('', @lines[$start + 1 .. $end - 1]),
-          join('', @lines[$end + 1 .. $#lines]));
+  return (
+    join('', @lines[0 .. $start - 1]),
+    join('', @lines[$start + 1 .. $end - 1]),
+    join('', @lines[$end + 1 .. $#lines]));
 }
 
 sub write_content {
@@ -171,7 +177,7 @@ sub write_content {
       make_path($dir) or die "Cannot create directory '$dir': $!.\n";
     }
   }
-  open (my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
+  open(my $fh, ($mode eq 'file' ? '>' : '|-'), $file) or die "Cannot open '$file' for write: $!\n";
   print $fh $content;
   if ($conf->{make_executable}) {
     my $current_mode = (stat $fh)[2] & oct('7777');
@@ -244,7 +250,7 @@ sub parse_file_conf {
     substr $file, 0, $end, '';
   }
   my $comments_decorator = ($conf{comments_char} // DEFAULT_COMMENTS_CHAR) x COMMENTS_CHAR_COUNT;
-  my $guard = DEFAULT_GUARD_STRING . (exists $conf{guard_suffix} ? ':'.$conf{guard_suffix} : '');
+  my $guard = DEFAULT_GUARD_STRING.(exists $conf{guard_suffix} ? ':'.$conf{guard_suffix} : '');
   $conf{start_marker} = $comments_decorator.$guard.' START'.$comments_decorator."\n";
   $conf{end_marker} = $comments_decorator.$guard.' END'.$comments_decorator."\n";
   $conf{content} = $file;
@@ -258,7 +264,7 @@ sub read_config_files {
   my ($dir, $content) = @_;
   opendir(my $dh, $dir) or die "Can't open dir '$dir': $!\n";
   while (readdir $dh) {
-    next if  m/^\./;
+    next if m/^\./;
     my $f = catfile($dir, $_);
     read_config_files($f, $content) if -d $f;
     $content->{$_} = read_file($f) if -f $f;
@@ -289,7 +295,7 @@ sub export_fragments {
 sub pack_fragments {
   my ($config_files) = @_;
   print read_file(catfile($FindBin::RealBin, $FindBin::RealScript));
-  for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
+  for my $file (sort { (lc $a) cmp(lc $b) } keys %{$config_files}) {
     my $content = $config_files->{$file};
     # The next "@@" header must start on its own line.
     $content .= "\n" if $content ne '' and $content !~ m/\n\z/;
@@ -305,7 +311,8 @@ sub check_requirements {
     my ($expr, $reason) = split /\s*#\s*/, $r, 2;
     next if eval $expr;  ## no critic (ProhibitStringyEval)
     die "Error while executing 'require' guard for ${display_name} '${expr}': $@.\n" if $@;
-    printf "Skipping %s due to require guard%s\n", $display_name, ($reason ? ': '.$reason : '') unless $flags{silent};
+    printf "Skipping %s due to require guard%s\n", $display_name, ($reason ? ': '.$reason : '')
+        unless $flags{silent};
     return 0;
   }
   return 1;
@@ -335,7 +342,7 @@ sub apply_fragment {
   my ($file, $content) = @_;
   my %conf = parse_file_conf($content);
   my $target = $conf{filename} // $file;
-  my $display_name = $target . ($conf{guard_suffix} ? ' ('.$conf{guard_suffix}.')' : '');
+  my $display_name = $target.($conf{guard_suffix} ? ' ('.$conf{guard_suffix}.')' : '');
   return 0 if not check_requirements(\%conf, $display_name);
   my ($mode, $in_path, $out_path) = parse_file_name($target);
   if ($flags{list}) {
@@ -366,7 +373,8 @@ sub main {
 
   my $config_files = {};
   $config_files = get_data_section() unless $flags{pack};  # We don’t read __DATA__ if we’re packing content anyway.
-  my $config_dir = $flags{dir} // catfile($ENV{XDG_CONFIG_HOME} || catfile(get_home_dir(), '.config'), 'update_config');
+  my $config_dir = $flags{dir}
+      // catfile($ENV{XDG_CONFIG_HOME} || catfile(get_home_dir(), '.config'), 'update_config');
   print "Reading configuration from: ${config_dir}\n" unless $flags{silent} or $flags{pack};
   read_config_files($config_dir, $config_files) if -d $config_dir;
 
@@ -376,7 +384,7 @@ sub main {
   }
 
   my $need_root = 0;
-  for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
+  for my $file (sort { (lc $a) cmp(lc $b) } keys %{$config_files}) {
     $need_root = 1 if apply_fragment($file, $config_files->{$file});
   }
 
