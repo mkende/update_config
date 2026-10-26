@@ -405,13 +405,19 @@ abbreviated down to a single character.
 =head1 FRAGMENT FILES
 
 Each fragment file describes a piece of content that should be present in a
-target file. By default, the target is the file with the same name as the
-fragment, relative to your home directory. Any suffix between brackets at the
-end of the fragment name is ignored, so that several fragments (e.g.
-F<bashrc [linux]> and F<bashrc [macos]>) can target the same file. You can
-organize the fragments in sub-directories, but only their base name is used, so
-two fragments must not have the same name. Hidden files and directories are
-ignored. Fragments are processed in alphabetical order, ignoring case.
+target file. By default, the target is a file directly in your home directory,
+with the same name as the fragment. However, hidden files are ignored when the
+fragments are read, so most of the time you will set the target explicitly with
+the C<FILENAME> directive described below (e.g. to update your F<.bashrc>).
+
+You can organize the fragments in sub-directories, but these are not part of
+the target path. Only the base name of a fragment is used, so two fragments
+must not have the same name, even in different directories. To have several
+fragments for the same file, give them distinct names with a suffix between
+brackets (e.g. F<bashrc [linux]> and F<bashrc [macos]>, both with
+C<FILENAME .bashrc>). That suffix is ignored if the name of the fragment is used
+as the target. Hidden directories are ignored too and fragments are processed
+in alphabetical order, ignoring case.
 
 The content of the fragment is written in the target file between two guard
 lines, which look like C<###AUTO-CONFIG START###> and C<###AUTO-CONFIG END###>.
