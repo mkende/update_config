@@ -287,7 +287,9 @@ my $need_root;
 FILE: for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
   my $content = $config_files->{$file};
   if ($flags{pack}) {
-    printf "@@ %s\n%s\n", $file, $content;
+    # The next "@@" header must start on its own line.
+    $content .= "\n" if $content ne '' and $content !~ m/\n\z/;
+    print "@@ ${file}\n${content}";
     next;
   }
   my %conf = parse_file_conf($content);
