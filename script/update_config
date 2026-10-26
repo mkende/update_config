@@ -295,7 +295,7 @@ sub export_fragments {
 sub pack_fragments {
   my ($config_files) = @_;
   print read_file(catfile($FindBin::RealBin, $FindBin::RealScript));
-  for my $file (sort { (lc $a) cmp(lc $b) } keys %{$config_files}) {
+  for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
     my $content = $config_files->{$file};
     # The next "@@" header must start on its own line.
     $content .= "\n" if $content ne '' and $content !~ m/\n\z/;
@@ -384,7 +384,7 @@ sub main {
   }
 
   my $need_root = 0;
-  for my $file (sort { (lc $a) cmp(lc $b) } keys %{$config_files}) {
+  for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
     $need_root = 1 if apply_fragment($file, $config_files->{$file});
   }
 
