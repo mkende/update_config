@@ -66,7 +66,7 @@ our $VERSION = 0.01;
 {
   my $t = UpdateConfigTest->new;
   my $r = $t->run('--pack');
-  like($r->{stderr}, qr/^Reading[ ]configuration[ ]from:/mx, '--pack: directory printed on STDERR');
+  is($r->{stderr}, q{}, '--pack: directory not printed');
   like($r->{stdout}, qr/\A#!/x, '--pack: STDOUT starts with the script');
 }
 
