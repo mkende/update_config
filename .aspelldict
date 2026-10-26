@@ -1,4 +1,4 @@
-personal_ws-1.1 en 62 
+personal_ws-1.1 en 63 
 Alacritty
 CONFIG
 CreateNewWindow
@@ -7,6 +7,7 @@ HomeDir
 INI
 INIT
 JSON
+MetaCPAN
 Mlocal
 ProhibitStringyEval
 STDERR
