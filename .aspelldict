@@ -1,12 +1,14 @@
-personal_ws-1.1 en 44 
+personal_ws-1.1 en 47 
 CONFIG
 GetOptions
 HomeDir
 INIT
 Mlocal
+ProhibitStringyEval
 STDERR
 STDOUT
 TODO
+UpdateConfig
 WEXITSTATUS
 WSL
 XDG
@@ -24,6 +26,7 @@ dir
 dirname
 dotfiles
 env
+expr
 fakename
 iptables
 linux
