@@ -156,4 +156,27 @@ our $VERSION = 0.01;
   is($t->read_home_file('user_file'), undef, '--root: other fragments not written');
 }
 
+{
+  my $t = UpdateConfigTest->new;
+  $t->add_fragment('flag_with_value', "IS PREFIX foo\ncontent\n");
+  $t->add_fragment('value_without_value', "FILENAME\ncontent\n");
+  $t->add_fragment('after_content', "content\nGUARD SUFFIX foo\n");
+  $t->add_fragment('blank_lines', "\n\nREM comment\n\nPERM 600\n\n\ncontent\n\n\n");
+  $t->run();
+  is(
+    $t->read_home_file('flag_with_value'),
+    guarded("IS PREFIX foo\ncontent\n"),
+    'flag directive with a value is content');
+  is(
+    $t->read_home_file('value_without_value'),
+    guarded("FILENAME\ncontent\n"),
+    'directive without its value is content');
+  is(
+    $t->read_home_file('after_content'),
+    guarded("content\nGUARD SUFFIX foo\n"),
+    'directive after the content is content');
+  is($t->read_home_file('blank_lines'),
+    guarded("content\n"), 'empty lines around directives and content are removed');
+}
+
 done_testing;
