@@ -111,6 +111,14 @@ sub get_home_dir {
   # return `echo -n ~`;
 }
 
+# Returns the default directory of the configuration fragments: ~/.update_config
+# if it exists, otherwise $XDG_CONFIG_HOME/update_config.
+sub get_config_dir {
+  my $home_config = catfile(get_home_dir(), '.update_config');
+  return $home_config if -d $home_config;
+  return catfile($ENV{XDG_CONFIG_HOME} || catfile(get_home_dir(), '.config'), 'update_config');
+}
+
 # Remove part of a file name that we are ignoring when creating the
 # target file (for the moment, only a suffix within bracket).
 sub clean_output_path {
@@ -373,8 +381,7 @@ sub main {
 
   my $config_files = {};
   $config_files = get_data_section() unless $flags{pack};  # We don’t read __DATA__ if we’re packing content anyway.
-  my $config_dir = $flags{dir}
-      // catfile($ENV{XDG_CONFIG_HOME} || catfile(get_home_dir(), '.config'), 'update_config');
+  my $config_dir = $flags{dir} // get_config_dir();
   print "Reading configuration from: ${config_dir}\n" unless $flags{silent} or $flags{pack};
   read_config_files($config_dir, $config_files) if -d $config_dir;
 
@@ -416,10 +423,12 @@ update_config [--test] [--help] [--diff] [--silent] [--list] [--dir directory]
 
 =head1 DESCRIPTION
 
-The program reads configuration fragments from the
+The program reads configuration fragments from the F<~/.update_config>
+directory if it exists. Otherwise, it reads them from the
 F<$XDG_CONFIG_HOME/update_config> directory (F<~/.config/update_config> when
-C<XDG_CONFIG_HOME> is not set) and all its subdirectories, as well as the
-fragments embedded in the script itself by the C<--pack> option. A fragment
+C<XDG_CONFIG_HOME> is not set). In both cases, all the subdirectories are read
+too, as well as the fragments embedded in the script itself by the C<--pack>
+option. A fragment
 from the directory replaces an embedded fragment with the same name.
 
 =head1 OPTIONS
