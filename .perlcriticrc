@@ -60,3 +60,12 @@ minimum_regex_length_to_complain_about = 30
 [-ValuesAndExpressions::ProhibitNoisyQuotes]
 
 # End of the template. You can add custom content below this line.
+
+# These variables are well known enough to be used without their English names.
+[Variables::ProhibitPunctuationVars]
+allow = $0 $@ $!
+
+[-ValuesAndExpressions::ProhibitEmptyQuotes]
+
+# The constant pragma is good enough, and the script must not depend on Readonly.
+[-ValuesAndExpressions::ProhibitConstantPragma]
