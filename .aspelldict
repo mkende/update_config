@@ -1,8 +1,11 @@
-personal_ws-1.1 en 24 
-CONFIG
+personal_ws-1.1 en 30 
 catfile
-config
+chdir
+CONFIG
 cpan
+cwd
+deco
+dev
 dir
 dirname
 dotfiles
@@ -19,7 +22,10 @@ stdin
 STDOUT
 subdirectories
 sudo
+tempdir
 TODO
+undef
 usr
 utf
+WEXITSTATUS
 XDG
