@@ -34,11 +34,11 @@ WriteMakefile(
       resources => {
         repository => {
           type => 'git',
-          url => 'git@github.com:/.git',
-          web => 'https://github.com//',
+          url => 'git@github.com:mkende/update_config.git',
+          web => 'https://github.com/mkende/update_config',
         },
         bugtracker => {
-          web => 'https://github.com///issues',
+          web => 'https://github.com/mkende/update_config/issues',
         },
       },
     },
