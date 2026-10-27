@@ -1,4 +1,4 @@
-personal_ws-1.1 en 63 
+personal_ws-1.1 en 67 
 Alacritty
 CONFIG
 CreateNewWindow
@@ -6,9 +6,11 @@ GetOptions
 HomeDir
 INI
 INIT
+IPv
 JSON
 MetaCPAN
 Mlocal
+ProhibitBacktickOperators
 ProhibitStringyEval
 STDERR
 STDOUT
@@ -26,6 +28,7 @@ chdir
 conf
 config
 cpan
+cpanm
 crontab
 ctx
 cwd
@@ -51,6 +54,7 @@ stdin
 stdout
 subdirectories
 sudo
+sysctl
 tempdir
 tmux
 toml

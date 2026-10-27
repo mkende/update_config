@@ -7,12 +7,14 @@ use English;
 
 # Only modules that are in the standard distribution for 5.24. The rests should
 # be in the INIT block below.
+use Config;
 use File::Basename 'dirname';
 use File::Path 'make_path';
+use File::Spec;
 use File::Spec::Functions 'catfile';
 use FindBin;
 use Getopt::Long 'GetOptions';
-use List::Util qw(all any);
+use List::Util qw(all any first);
 use Pod::Usage 'pod2usage';
 use Scalar::Util 'refaddr';
 
@@ -57,7 +59,40 @@ sub try_load {
   return 1;
 }
 
-my $has_local_lib = '';
+# Returns the full path of the given program if it is found in the PATH, or
+# undef otherwise.
+sub find_program {
+  my ($name) = @_;
+  return first { -f && -x } map { catfile($_, $name) } File::Spec->path();
+}
+
+# Whether local::lib is loaded (undef until we try to load it).
+my $has_local_lib;
+
+# Installs the given module with cpanm if it is available, or cpan otherwise.
+# The module is installed in the local::lib directory if local::lib is loaded,
+# or system-wide otherwise, using sudo when needed.
+sub install_module {
+  my ($m) = @_;
+  local $ENV{PERL_MM_USE_DEFAULT} = 1;  # Used so that cpan don’t ask questions.
+  my $cpanm = find_program('cpanm');
+  # When it can't write in the system directories, cpanm installs the modules
+  # in ~/perl5, where we would not find them without local::lib.
+  $need_sudo = 1 if $cpanm and not $has_local_lib and not -w $Config{installsitelib} and $EUID != 0;
+  my @cmd = $cpanm ? ($cpanm) : ('cpan', ($has_local_lib ? '-I' : ()), '-i');
+  my $name = $cpanm ? 'cpanm' : 'cpan';
+  if (!$need_sudo) {
+    print "Installing module '${m}' with ${name}\n" unless $flags{silent};
+    return if system(@cmd, $m) == 0;
+    $need_sudo = 1;
+  }
+  # sudo resets the environment, so the module is installed system-wide even
+  # if local::lib is loaded.
+  print "Installing module '${m}' with sudo ${name}\n" unless $flags{silent};
+  system('sudo', ($cpanm ? $cpanm : qw(cpan -i)), $m) == 0
+      or die "Cannot install module '$m'.\n";
+  return;
+}
 
 sub load_module {
   my ($m, @args) = @_;
@@ -67,30 +102,20 @@ sub load_module {
   # If we don’t have local::lib, we won’t install it as that might require a
   # sudo and, at that point, that defeats the points of using local::lib in the
   # first place.
-  if (!$has_local_lib) {
+  if (!defined $has_local_lib) {
     # local::lib prints some configuration and exit the program when $0 is '-' (meant for `perl -Mlocal::lib`).
     local $0 = $0 eq '-' ? 'fakename.pl' : $0;
-    if (try_load('local::lib')) {
-      $has_local_lib = '-I';
+    $has_local_lib = try_load('local::lib');
+    if ($has_local_lib) {
       print "Successfully loaded local::lib\n" unless $flags{silent};
       # We try to load the module again, in case it was already installed locally.
       return 1 if try_load($m, @args);
     } else {
-      $has_local_lib = ' ';  # true but useless in the command line below.
       print "Failed to load local::lib\n" unless $flags{silent};
     }
   }
 
-  # Now, if we have set-up local::lib these will be installed locally otherwise
-  # we try to install them system-wide, which might require the use of sudo.
-
-  local $ENV{PERL_MM_USE_DEFAULT} = 1;  # Used so that cpan don’t ask questions.
-  if (!$need_sudo) {
-    system "cpan ${has_local_lib} -i $m" and $need_sudo = 1;
-  }
-  if ($need_sudo) {
-    system "sudo cpan -i $m" and die "Cannot install module '$m'.\n";
-  }
+  install_module($m);
   try_load($m, @args) or die "Cannot load module '$m'.\n";
   return 1;
 }
@@ -754,6 +779,12 @@ C<XDG_CONFIG_HOME> is not set). In both cases, all the subdirectories are read
 too, as well as the fragments embedded in the script itself by the C<--pack>
 option. A fragment
 from the directory replaces an embedded fragment with the same name.
+
+The non-core modules used by the program are installed automatically when
+they are missing (some of them only when they are first needed), with
+C<cpanm> if it is available, or C<cpan> otherwise. They are installed with
+L<local::lib> if that module is available, or system-wide otherwise, using
+C<sudo> if needed.
 
 =head1 OPTIONS
 

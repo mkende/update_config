@@ -1,5 +1,8 @@
 Revision history for Perl distribution App-UpdateConfig
 
+1.02 - ????-??-??
+ - Use cpanm, when available, to install the missing modules.
+
 1.01 - 2026-10-26
  - Add support for a MERGE directive to handle structured formats.
 
