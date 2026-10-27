@@ -1,6 +1,6 @@
 Revision history for Perl distribution App-UpdateConfig
 
-1.02 - ????-??-??
+1.02 - 2026-10-27
  - Use cpanm when available to install the missing modules.
  - Install the missing modules globally with sudo when needed.
  - Accept the MERGE formats in upper case or from the file name.
