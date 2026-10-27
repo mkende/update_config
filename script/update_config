@@ -8,6 +8,7 @@ use English;
 # Only modules that are in the standard distribution for 5.24. The rests should
 # be in the INIT block below.
 use Config;
+use Cwd ();
 use File::Basename 'dirname';
 use File::Path 'make_path';
 use File::Spec;
@@ -66,6 +67,19 @@ sub find_program {
   return first { -f && -x } map { catfile($_, $name) } File::Spec->path();
 }
 
+# Returns true if this script is installed in one of the bin directories of
+# the Perl installation (e.g. with `sudo cpanm`), rather than with local::lib or
+# as a standalone copy.
+sub is_installed_globally {
+  return 0 if $0 eq '-';
+  my @dirs =
+      grep { defined && $_ ne '' }
+      @Config{
+    qw(installbin installscript installsitebin installsitescript installvendorbin installvendorscript)
+      };
+  return any { (Cwd::realpath($_) // '') eq $FindBin::RealBin } @dirs;
+}
+
 # Whether local::lib is loaded (undef until we try to load it).
 my $has_local_lib;
 
@@ -77,8 +91,13 @@ sub install_module {
   local $ENV{PERL_MM_USE_DEFAULT} = 1;  # Used so that cpan don’t ask questions.
   my $cpanm = find_program('cpanm');
   # When it can't write in the system directories, cpanm installs the modules
-  # in ~/perl5, where we would not find them without local::lib.
-  $need_sudo = 1 if $cpanm and not $has_local_lib and not -w $Config{installsitelib} and $EUID != 0;
+  # in ~/perl5, where we would not find them without local::lib. And when we
+  # are installed globally, our modules must be installed globally too.
+  $need_sudo = 1
+      if ($cpanm or is_installed_globally())
+      and not $has_local_lib
+      and not -w $Config{installsitelib}
+      and $EUID != 0;
   my @cmd = $cpanm ? ($cpanm) : ('cpan', ($has_local_lib ? '-I' : ()), '-i');
   my $name = $cpanm ? 'cpanm' : 'cpan';
   if (!$need_sudo) {
@@ -98,11 +117,16 @@ sub load_module {
   my ($m, @args) = @_;
   return 1 if try_load($m, @args);
 
-  # We try to load local::lib if we need to install a module.
+  # We try to load local::lib if we need to install a module (unless we are
+  # installed globally, in which case the modules are installed alongside us).
   # If we don’t have local::lib, we won’t install it as that might require a
   # sudo and, at that point, that defeats the points of using local::lib in the
   # first place.
-  if (!defined $has_local_lib) {
+  if (not defined $has_local_lib and is_installed_globally()) {
+    $has_local_lib = 0;
+    print "Installing modules globally, as update_config is installed globally\n"
+        unless $flags{silent};
+  } elsif (!defined $has_local_lib) {
     # local::lib prints some configuration and exit the program when $0 is '-' (meant for `perl -Mlocal::lib`).
     local $0 = $0 eq '-' ? 'fakename.pl' : $0;
     $has_local_lib = try_load('local::lib');
@@ -782,9 +806,11 @@ from the directory replaces an embedded fragment with the same name.
 
 The non-core modules used by the program are installed automatically when
 they are missing (some of them only when they are first needed), with
-C<cpanm> if it is available, or C<cpan> otherwise. They are installed with
-L<local::lib> if that module is available, or system-wide otherwise, using
-C<sudo> if needed.
+C<cpanm> if it is available, or C<cpan> otherwise. If the program is installed
+in the directories of the Perl installation (e.g. with C<sudo cpanm>), the
+modules are installed there too, using C<sudo> if needed. Otherwise, they are
+installed with L<local::lib> if that module is available, or system-wide (using
+C<sudo> if needed).
 
 =head1 OPTIONS
 
