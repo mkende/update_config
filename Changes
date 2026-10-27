@@ -17,6 +17,8 @@ Revision history for Perl distribution App-UpdateConfig
    as its default guard suffix. Fragments that rely on this name without a
    GUARD SUFFIX directive will add a new block in their target file, instead of
    updating the existing one.
+ - Use the suffix between brackets in the name of a directory (e.g. "[bar]" or
+   "foo [bar]") as the default guard suffix of the fragments that it contains.
 
 1.01 - 2026-10-26
  - Add support for a MERGE directive to handle structured formats.

@@ -81,6 +81,23 @@ our $VERSION = 0.01;
 
 {
   my $t = UpdateConfigTest->new;
+  $t->add_fragment('[a]/plain', "plain\n");
+  $t->add_fragment('dir [a]/sub/sub [b]/nested [c]', "nested\n");
+  $t->add_fragment('[a]/other [b]/overridden', "GUARD SUFFIX own\noverridden\n");
+  $t->run();
+  is($t->read_home_file('plain'), guarded("plain\n", undef, 'a'), 'guard suffix from a directory');
+  is(
+    $t->read_home_file('nested'),
+    guarded("nested\n", undef, 'a-b-c'),
+    'guard suffixes from directories and name joined');
+  is(
+    $t->read_home_file('overridden'),
+    guarded("overridden\n", undef, 'own'),
+    'guard suffix from directories overridden');
+}
+
+{
+  my $t = UpdateConfigTest->new;
   $t->add_fragment('file', "IS PREFIX\nprefix\n");
   $t->write_home_file('file', "existing\n");
   $t->run();

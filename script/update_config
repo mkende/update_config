@@ -179,13 +179,15 @@ sub clean_output_path {
   my ($name) = @_;
   return $name =~ s/\s*(?:\[.*\]\s*)$//r;
 }
-# Returns the default guard suffix of the fragment with the given name: the
-# suffix between brackets at the end of its name, if any. Returns undef
-# otherwise.
+# Returns the default guard suffix of the fragment with the given name (its
+# path relative to the configuration directory): the suffixes between brackets
+# at the end of the names of its directories and of its own name, joined with
+# '-'. Returns undef if there are no such suffixes.
 sub get_default_guard_suffix {
   my ($name) = @_;
-  my ($suffix) = basename($name) =~ m/\s*\[(.*)\]\s*$/;
-  return defined $suffix && $suffix ne '' ? $suffix : undef;
+  my @suffixes = grep { defined && $_ ne '' } map { m/\s*\[(.*)\]\s*$/ ? $1 : undef } split m{/},
+      $name;
+  return @suffixes ? join('-', @suffixes) : undef;
 }
 
 # parse_file_name($file_name)
@@ -667,6 +669,12 @@ sub export_fragments {
   my $internal_files = get_data_section();
   while (my ($file, $content) = each %{$internal_files}) {
     my %conf = parse_file_conf($content);
+    my $guard_suffix = get_default_guard_suffix($file);
+    # The exported files are not in their directories, so their guard suffix
+    # is written explicitly.
+    if (defined $guard_suffix and not exists $conf{guard_suffix}) {
+      $content = "GUARD SUFFIX ${guard_suffix}\n${content}";
+    }
     if (not exists $conf{filename}) {
       my $output = clean_output_path(basename($file));
       $content = "FILENAME $output\n$content";
@@ -947,7 +955,14 @@ it is the default guard suffix of the fragment (e.g. F<bashrc [linux]> and
 F<bashrc [macos]> both target F<.bashrc>, with the C<linux> and C<macos> guard
 suffixes). Several fragments can be applied to the same file only if they have
 different guard suffixes (see the C<GUARD SUFFIX> directive), otherwise the
-program fails without applying any fragment. Hidden
+program fails without applying any fragment.
+
+Similarly, a suffix between brackets at the end of the name of a directory
+(e.g. F<[linux]> or F<work [linux]>) is the default guard suffix of all the
+fragments that it contains, including in its sub-directories. When several of
+these suffixes apply to a fragment (from its directories or its own name),
+they are joined with C<->, from the outermost one (e.g. the default guard
+suffix of F<[linux]/shell [work]/bashrc [prompt]> is C<linux-work-prompt>). Hidden
 directories are ignored too and fragments are processed in alphabetical order
 of their base name, ignoring case.
 
@@ -992,8 +1007,8 @@ the guard lines (it is repeated three times). The default is C<#>.
 
 Adds a suffix to the guard lines, which then look like
 C<###AUTO-CONFIG:suffix START###>. You need this if several fragments target
-the same file. By default, the suffix between brackets at the end of the name of
-the fragment is used, if any. With C<MERGE>, there are no guard lines but the suffix is
+the same file. By default, the suffixes between brackets at the end of the name
+of the fragment and of its directories are used, if any (see above). With C<MERGE>, there are no guard lines but the suffix is
 still needed to merge several fragments into the same file.
 
 =item C<IS PREFIX>
