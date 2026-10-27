@@ -178,6 +178,18 @@ subtest 'JSON' => sub {
   unlike($r->{stdout}, qr/"b"/x, '--diff: unchanged lines not printed');
 };
 
+subtest 'Upper case format' => sub {
+  my $t = UpdateConfigTest->new;
+  $t->write_home_file('app.json', qq{{"a": 1}\n});
+  $t->add_fragment('app', qq{FILENAME app.json\nMERGE JSON\n\n{"b": 2}\n});
+  $t->run();
+  is($t->read_home_file('app.json'), qq{{\n  "a": 1,\n  "b": 2\n}\n}, 'merged');
+  $t->add_fragment('app', qq{FILENAME app.json\nMERGE Json\n\n{}\n});
+  $t->run();
+  is($t->read_home_file('app.json'), qq{{\n  "a": 1\n}\n},
+    'saved state used with another case');
+};
+
 subtest 'YAML' => sub {
   need_module('YAML::PP');
   my $t = UpdateConfigTest->new;

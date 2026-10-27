@@ -6,6 +6,7 @@ Revision history for Perl distribution App-UpdateConfig
    is itself installed globally.
  - Fix the installation command in the README, which did not install the
    optional modules.
+ - Accept the MERGE formats in any case (e.g. MERGE TOML).
 
 1.01 - 2026-10-26
  - Add support for a MERGE directive to handle structured formats.
