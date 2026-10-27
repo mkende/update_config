@@ -40,6 +40,34 @@ our $VERSION = 0.01;
 
 {
   my $t = UpdateConfigTest->new;
+  $t->add_fragment('a/file', "FILENAME .a\ncontent a\n");
+  $t->add_fragment('b/file', "FILENAME .b\ncontent b\n");
+  $t->run();
+  is($t->read_home_file('.a'), guarded("content a\n"), 'same name in two directories: first');
+  is($t->read_home_file('.b'), guarded("content b\n"), 'same name in two directories: second');
+}
+
+{
+  my $t = UpdateConfigTest->new;
+  $t->add_fragment('a/file', "content a\n");
+  $t->add_fragment('b/other', "FILENAME file\ncontent b\n");
+  $t->add_fragment('c/skipped', "FILENAME file\nREQUIRE 0\ncontent c\n");
+  my $r = $t->run();
+  isnt($r->{exit}, 0, 'same target and guard: failure');
+  like(
+    $r->{stderr},
+    qr/Fragments[ ]'a\/file'[ ]and[ ]'b\/other'[ ]can't[ ]both[ ]be[ ]applied[ ]to[ ]'.*file'/x,
+    'same target and guard: message');
+  unlike($r->{stderr}, qr/c\/skipped/x, 'same target and guard: skipped fragment ignored');
+  is($t->read_home_file('file'), undef, 'same target and guard: nothing applied');
+
+  $t->add_fragment('b/other', "FILENAME file\nENTIRE FILE\nGUARD SUFFIX b\ncontent b\n");
+  $r = $t->run();
+  like($r->{stderr}, qr/can't[ ]both[ ]be[ ]applied/x, 'ENTIRE FILE on a shared target: failure');
+}
+
+{
+  my $t = UpdateConfigTest->new;
   $t->add_fragment('target [anything]', "content\n");
   $t->run();
   is($t->read_home_file('target'),

@@ -1,4 +1,4 @@
-personal_ws-1.1 en 67 
+personal_ws-1.1 en 68 
 Alacritty
 CONFIG
 CreateNewWindow
@@ -49,6 +49,7 @@ perl
 perldoc
 pre
 refaddr
+sha
 stderr
 stdin
 stdout

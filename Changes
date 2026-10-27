@@ -8,6 +8,11 @@ Revision history for Perl distribution App-UpdateConfig
    optional modules.
  - Accept the MERGE formats in any case (e.g. MERGE TOML).
  - Add a DIR directive to set the directory of the target file.
+ - Allow fragments with the same name in different directories, and fail when
+   several fragments are applied to the same file with the same guard suffix.
+ - Save the state of the MERGE fragments per target file and guard suffix, and
+   allow GUARD SUFFIX with MERGE to merge several fragments into the same file.
+   The states saved by the previous version are not reused.
 
 1.01 - 2026-10-26
  - Add support for a MERGE directive to handle structured formats.

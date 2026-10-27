@@ -9,7 +9,8 @@ use English;
 # be in the INIT block below.
 use Config;
 use Cwd ();
-use File::Basename 'dirname';
+use Digest::SHA 'sha1_hex';
+use File::Basename qw(basename dirname);
 use File::Path 'make_path';
 use File::Spec;
 use File::Spec::Functions 'catfile';
@@ -157,6 +158,7 @@ use constant DEFAULT_COMMENTS_CHAR => '#';
 use constant DEFAULT_GUARD_STRING => 'AUTO-CONFIG';
 use constant COMMENTS_CHAR_COUNT => 3;  # In the guard markers.
 use constant ARRAYS_MARKER => 'update_config_arrays';  # In MERGE fragments.
+use constant STATE_HASH_LENGTH => 16;  # Hex digits in the name of the MERGE states.
 
 sub get_home_dir {
   return File::HomeDir->my_home
@@ -366,7 +368,7 @@ sub validate_merge_conf {
   $conf->{merge_arrays} //= 'auto';
   die "Invalid MERGE ARRAYS value: '$conf->{merge_arrays}'.\n"
       if not any { $conf->{merge_arrays} eq $_ } qw(auto union replace);
-  for my $d ('COMMENTS CHAR', 'ENTIRE FILE', 'GUARD SUFFIX', 'IS PREFIX') {
+  for my $d ('COMMENTS CHAR', 'ENTIRE FILE', 'IS PREFIX') {
     die "MERGE cannot be used with ${d}.\n" if exists $conf->{$DIRECTIVES{$d}{key}};
   }
   return;
@@ -566,10 +568,11 @@ sub merge_keyed_array {
 }
 
 # Returns the path of the file where the last applied version of a MERGE
-# fragment is saved. The NEED ROOT fragments are saved in a system directory so
-# that the state of the user is never written by root.
+# fragment is saved, which is specific to its target and to its guard suffix.
+# The NEED ROOT fragments are saved in a system directory so that the state of
+# the user is never written by root.
 sub get_merge_state_path {
-  my ($name, $conf) = @_;
+  my ($in_path, $conf) = @_;
   my $dir;
   if ($conf->{need_root}) {
     $dir = $ENV{UPDATE_CONFIG_ROOT_STATE_DIR} || '/var/lib/update_config';
@@ -577,26 +580,31 @@ sub get_merge_state_path {
     $dir = catfile($ENV{XDG_STATE_HOME} || catfile(get_home_dir(), '.local', 'state'),
       'update_config');
   }
-  return catfile($dir, $name =~ s{/}{_}gr);
+  # The readable part of the name is not unique (in particular for commands),
+  # so we add a hash of the full target.
+  my $suffix = $conf->{guard_suffix};
+  my $readable = join '-', map { s/[^\w.]+/_/gr } basename($in_path), $suffix // ();
+  my $hash = substr sha1_hex(join "\0", $in_path, $suffix // ''), 0, STATE_HASH_LENGTH;
+  return catfile($dir, "${readable}-${hash}");
 }
 
 # Returns the data of the previous version of a MERGE fragment, if it was saved
-# and applied to the same target with the same format. Otherwise returns an
-# empty hash-ref.
+# with the same format. Otherwise returns an empty hash-ref.
 sub read_merge_state {
-  my ($name, $target, $conf) = @_;
-  my $path = get_merge_state_path($name, $conf);
+  my ($in_path, $conf) = @_;
+  my $path = get_merge_state_path($in_path, $conf);
   return {} if not -f $path;
   my %old = parse_file_conf(scalar read_file($path));
-  return {} if get_target($name, \%old) ne $target or $old{merge} ne $conf->{merge};
+  return {} if ($old{merge} // '') ne $conf->{merge};
   return parse_merge_data($old{merge}, $old{content}, "the saved state '${path}'");
 }
 
-# Saves the content of a MERGE fragment (including its directives), so that it
-# can be passed to read_merge_state on the next run.
+# Saves the format and the content of a MERGE fragment, so that it can be read
+# by read_merge_state on the next run.
 sub save_merge_state {
-  my ($name, $content, $conf) = @_;
-  my $path = get_merge_state_path($name, $conf);
+  my ($in_path, $conf) = @_;
+  my $path = get_merge_state_path($in_path, $conf);
+  my $content = "MERGE $conf->{merge}\n\n$conf->{content}";
   return if -f $path and read_file($path) eq $content;
   my $dir = dirname($path);
   make_path($dir) if not -d $dir;
@@ -619,17 +627,19 @@ sub merge_content {
   return ($old_content, $serialize->($data));
 }
 
-# Puts in %$content the content of the files in the given directory and
-# all its subdirectories. Ignores hidden files and directories. Ignores
-# multiple files with the same name.
+# Puts in %$content the content of the files in the given directory and all its
+# subdirectories, indexed by their path relative to the given directory (the
+# optional $prefix is added at the beginning of these paths). Ignores hidden files and
+# directories.
 sub read_config_files {
-  my ($dir, $content) = @_;
+  my ($dir, $content, $prefix) = @_;
   opendir(my $dh, $dir) or die "Can't open dir '$dir': $!\n";
   while (readdir $dh) {
     next if m/^\./;
     my $f = catfile($dir, $_);
-    read_config_files($f, $content) if -d $f;
-    $content->{$_} = read_file($f) if -f $f;
+    my $name = defined $prefix ? "${prefix}/$_" : $_;
+    read_config_files($f, $content, $name) if -d $f;
+    $content->{$name} = read_file($f) if -f $f;
   }
   closedir $dh;
   return;
@@ -641,7 +651,7 @@ sub export_fragments {
   while (my ($file, $content) = each %{$internal_files}) {
     my %conf = parse_file_conf($content);
     if (not exists $conf{filename}) {
-      my $output = clean_output_path($file);
+      my $output = clean_output_path(basename($file));
       $content = "FILENAME $output\n$content";
     }
     $file =~ s/^\.//;
@@ -657,7 +667,7 @@ sub export_fragments {
 sub pack_fragments {
   my ($config_files) = @_;
   print read_file(catfile($FindBin::RealBin, $FindBin::RealScript));
-  for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
+  for my $file (sort by_fragment_order keys %{$config_files}) {
     my $content = $config_files->{$file};
     # The next "@@" header must start on its own line.
     $content .= "\n" if $content ne '' and $content !~ m/\n\z/;
@@ -702,14 +712,14 @@ sub update_target {
 # the content before the managed part, the current and new versions of the
 # managed part, and the content after it.
 sub get_contents {
-  my ($mode, $in_path, $name, $target, $conf) = @_;
+  my ($mode, $in_path, $conf) = @_;
   if (not $conf->{merge}) {
     my ($before, $old_content, $after) = read_content($mode, $in_path, $conf);
     return ($before, $old_content, $conf->{content}, $after);
   }
   my $module = $MERGE_FORMATS{$conf->{merge}}{module};
   load_module($module) if $module;
-  my $old = read_merge_state($name, $target, $conf);
+  my $old = read_merge_state($in_path, $conf);
   return ('', merge_content($mode, $in_path, $conf, $old), '');
 }
 
@@ -718,44 +728,79 @@ sub get_contents {
 # directives are incompatible.
 sub get_target {
   my ($name, $conf) = @_;
-  my $file = $conf->{filename} // clean_output_path($name);
+  my $file = $conf->{filename} // clean_output_path(basename($name));
   return $file if not exists $conf->{dir};
   die "FILENAME cannot be an absolute path with DIR in '${name}'.\n" if $file =~ m{^/};
   die "DIR cannot be used with commands in '${name}'.\n" if $file =~ m/,/;
   return catfile($conf->{dir}, $file);
 }
 
-# Applies the given fragment (depending on the command line flags). Returns
-# true if the fragment needs root and was not applied.
-sub apply_fragment {
-  my ($file, $content) = @_;
+# Sorts the fragments by their base name and then by their path, ignoring case.
+sub by_fragment_order {
+  return (lc basename($a) cmp lc basename($b)) || (lc $a cmp lc $b);
+}
+
+# Returns the description of the given fragment (from its name and content),
+# as a hash-ref with its name, `conf` (from parse_file_conf), `display_name`,
+# and the `mode`, `in_path` and `out_path` of its target (from
+# parse_file_name). Returns undef if its REQUIRE guards are not verified.
+sub prepare_fragment {
+  my ($name, $content) = @_;
   my %conf = parse_file_conf($content);
-  my $target = get_target($file, \%conf);
+  my $target = get_target($name, \%conf);
   my $display_name = $target.($conf{guard_suffix} ? ' ('.$conf{guard_suffix}.')' : '');
-  return 0 if not check_requirements(\%conf, $display_name);
-  my ($mode, $in_path, $out_path) = parse_file_name($target);
-  if ($flags{list}) {
-    print "$in_path\n";
-    return 0;
+  return if not check_requirements(\%conf, $display_name);
+  my %fragment = (name => $name, conf => \%conf, display_name => $display_name);
+  @fragment{qw(mode in_path out_path)} = parse_file_name($target);
+  return \%fragment;
+}
+
+# Dies if some of the given fragments (from prepare_fragment) can't be applied
+# to the same target: when they have the same guard suffix, when one of them
+# uses ENTIRE FILE, or when only one of them uses MERGE.
+sub check_conflicts {
+  my (@fragments) = @_;
+  my %by_target;
+  for my $f (@fragments) {
+    my $c = $f->{conf};
+    for my $other (@{$by_target{"$f->{mode}\0$f->{in_path}"}}) {
+      my $o = $other->{conf};
+      next
+          if ($c->{guard_suffix} // "\0") ne ($o->{guard_suffix} // "\0")
+          && !$c->{entire_file}
+          && !$o->{entire_file}
+          && !$c->{merge} == !$o->{merge};
+      die "Fragments '$other->{name}' and '$f->{name}' can't both be applied to "
+          ."'$f->{in_path}', use different GUARD SUFFIX directives.\n";
+    }
+    push @{$by_target{"$f->{mode}\0$f->{in_path}"}}, $f;
   }
-  my ($before, $old_content, $new_content, $after) =
-      get_contents($mode, $in_path, $file, $target, \%conf);
+  return;
+}
+
+# Applies the given fragment (from prepare_fragment), depending on the command
+# line flags. Returns true if the fragment needs root and was not applied.
+sub apply_fragment {
+  my ($fragment) = @_;
+  my ($conf, $display_name) = @{$fragment}{qw(conf display_name)};
+  my ($mode, $in_path, $out_path) = @{$fragment}{qw(mode in_path out_path)};
+  my ($before, $old_content, $new_content, $after) = get_contents($mode, $in_path, $conf);
   # Whether this run is the one that writes this fragment (as root or not).
-  my $can_write = !$flags{test} && !$conf{need_root} == !$flags{root};
-  if ($old_content eq $new_content and not need_perm_update($out_path, $mode, \%conf)) {
+  my $can_write = !$flags{test} && !$conf->{need_root} == !$flags{root};
+  if ($old_content eq $new_content and not need_perm_update($out_path, $mode, $conf)) {
     print "Nothing to do for: $display_name\n" unless $flags{silent};
-    save_merge_state($file, $content, \%conf) if $conf{merge} and $can_write;
+    save_merge_state($in_path, $conf) if $conf->{merge} and $can_write;
     return 0;
   }
   if ($flags{diff}) {
     my $diff = diff(\$old_content, \$new_content, {CONTEXT => 0});
     print "Diff for: $display_name\n$diff";
   }
-  return 1 if $conf{need_root} and not $flags{root};
-  return 0 if $flags{root} and not $conf{need_root};
+  return 1 if $conf->{need_root} and not $flags{root};
+  return 0 if $flags{root} and not $conf->{need_root};
   if ($can_write) {
-    update_target($mode, $out_path, $before, $new_content, $after, \%conf);
-    save_merge_state($file, $content, \%conf) if $conf{merge};
+    update_target($mode, $out_path, $before, $new_content, $after, $conf);
+    save_merge_state($in_path, $conf) if $conf->{merge};
   }
   print "Updated: ${display_name}\n" unless $flags{silent};
   return 0;
@@ -778,9 +823,17 @@ sub main {
     return;
   }
 
+  my @fragments = map { prepare_fragment($_, $config_files->{$_}) }
+      sort by_fragment_order keys %{$config_files};
+  if ($flags{list}) {
+    print "$_->{in_path}\n" for @fragments;
+    return;
+  }
+  check_conflicts(@fragments);
+
   my $need_root = 0;
-  for my $file (sort { (lc $a) cmp (lc $b) } keys %{$config_files}) {
-    $need_root = 1 if apply_fragment($file, $config_files->{$file});
+  for my $f (@fragments) {
+    $need_root = 1 if apply_fragment($f);
   }
 
   return if not $need_root or $flags{'no-root'};
@@ -871,13 +924,13 @@ fragments are read, so most of the time you will set the target explicitly with
 the C<FILENAME> directive described below (e.g. to update your F<.bashrc>).
 
 You can organize the fragments in sub-directories, but these are not part of
-the target path. Only the base name of a fragment is used, so two fragments
-must not have the same name, even in different directories. To have several
-fragments for the same file, give them distinct names with a suffix between
-brackets (e.g. F<bashrc [linux]> and F<bashrc [macos]>, both with
-C<FILENAME .bashrc>). That suffix is ignored if the name of the fragment is used
-as the target. Hidden directories are ignored too and fragments are processed
-in alphabetical order, ignoring case.
+the target path: only the base name of a fragment is used as its default
+target. A suffix between brackets in that name is ignored (e.g. F<bashrc
+[linux]> and F<bashrc [macos]>). Several fragments can be applied to the same
+file only if they have different guard suffixes (see the C<GUARD SUFFIX>
+directive), otherwise the program fails without applying any fragment. Hidden
+directories are ignored too and fragments are processed in alphabetical order
+of their base name, ignoring case.
 
 Unless the C<MERGE> directive is used (see L</Merged files>), the content of the
 fragment is written in the target file between two guard lines, which look
@@ -920,7 +973,8 @@ the guard lines (it is repeated three times). The default is C<#>.
 
 Adds a suffix to the guard lines, which then look like
 C<###AUTO-CONFIG:suffix START###>. You need this if several fragments target
-the same file.
+the same file. With C<MERGE>, there are no guard lines but the suffix is
+still needed to merge several fragments into the same file.
 
 =item C<IS PREFIX>
 
@@ -941,7 +995,7 @@ Makes the target file executable.
 Merges the data of the fragment into the target file instead of using guard
 lines, see L</Merged files> below. The format is one of C<json>, C<toml>,
 C<yaml> or C<ini> (case insensitive). This directive cannot be used with C<COMMENTS CHAR>,
-C<ENTIRE FILE>, C<GUARD SUFFIX> or C<IS PREFIX>.
+C<ENTIRE FILE> or C<IS PREFIX>.
 
 =item C<MERGE ARRAYS> I<mode>
 
@@ -1036,7 +1090,8 @@ fragment, whatever its formatting.
 
 =item *
 
-The last applied version of each fragment is saved in
+The last applied version of each fragment (for each target and guard suffix)
+is saved in
 F<$XDG_STATE_HOME/update_config> (F<~/.local/state/update_config> by
 default), or in F</var/lib/update_config> for the C<NEED ROOT> fragments
 (this can be overridden with the C<UPDATE_CONFIG_ROOT_STATE_DIR> environment

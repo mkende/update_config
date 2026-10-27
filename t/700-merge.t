@@ -25,6 +25,16 @@ sub need_module {
   return;
 }
 
+# Returns the names of the files in the given directory, or an empty list if
+# that directory does not exist.
+sub list_dir {
+  my ($dir) = @_;
+  opendir my $dh, $dir or return;
+  my @files = sort grep { !m/^[.]/x } readdir $dh;
+  closedir $dh;
+  return @files;
+}
+
 # Returns the data of a TOML file in the home directory of the sandbox.
 sub read_toml {
   my ($t, $path) = @_;
@@ -91,7 +101,7 @@ subtest 'TOML: state saved when there is nothing to do' => sub {
   $t->add_fragment('app', qq{FILENAME app.toml\nMERGE toml\n\na = 1\nb = 2\n});
   my $r = $t->run('--test');
   like($r->{stdout}, qr/^Nothing[ ]to[ ]do[ ]for:[ ]app[.]toml$/mx, 'nothing to do');
-  is($t->read_home_file('.local/state/update_config/app'), undef, '--test: no state saved');
+  is([list_dir($t->home_path('.local/state/update_config'))], [], '--test: no state saved');
   $t->run();
   $t->add_fragment('app', qq{FILENAME app.toml\nMERGE toml\n\na = 1\n});
   $t->run();
@@ -199,6 +209,35 @@ subtest 'DIR' => sub {
   is($t->read_home_file('.config/app/app.json'), qq{{\n  "a": 1\n}\n}, 'saved state used');
 };
 
+subtest 'Several fragments merged into the same file' => sub {
+  my $t = UpdateConfigTest->new;
+  $t->add_fragment('a/app', qq{FILENAME app.json\nMERGE json\nGUARD SUFFIX a\n\n{"a": 1}\n});
+  $t->add_fragment('b/app', qq{FILENAME app.json\nMERGE json\nGUARD SUFFIX b\n\n{"b": 1}\n});
+  my $r = $t->run();
+  is($r->{exit}, 0, 'success');
+  is($t->read_home_file('app.json'), qq{{\n  "a": 1,\n  "b": 1\n}\n}, 'both fragments merged');
+  is(
+    [list_dir($t->home_path('.local/state/update_config'))],
+    bag {
+      item match(qr/^app[.]json-a-[0-9a-f]{16}$/x);
+      item match(qr/^app[.]json-b-[0-9a-f]{16}$/x);
+      end;
+    },
+    'one state per guard suffix');
+  $t->add_fragment('a/app', qq{FILENAME app.json\nMERGE json\nGUARD SUFFIX a\n\n{}\n});
+  $t->run();
+  is($t->read_home_file('app.json'), qq{{\n  "b": 1\n}\n}, 'value removed using its own state');
+
+  $t->add_fragment('b/app', qq{FILENAME app.json\nMERGE json\n\n{"b": 1}\n});
+  $t->add_fragment('c/app', qq{FILENAME app.json\nMERGE json\n\n{"c": 1}\n});
+  $r = $t->run();
+  isnt($r->{exit}, 0, 'same guard suffix: failure');
+  like(
+    $r->{stderr},
+    qr/Fragments[ ]'b\/app'[ ]and[ ]'c\/app'[ ]can't[ ]both[ ]be[ ]applied/x,
+    'same guard suffix: message');
+};
+
 subtest 'YAML' => sub {
   need_module('YAML::PP');
   my $t = UpdateConfigTest->new;
@@ -234,8 +273,11 @@ subtest 'NEED ROOT' => sub {
   $t->run($env, '--no-root');
   ok(!-e $state_dir, 'no state saved without --root');
   $t->run($env, '--root');
-  ok(-f catfile($state_dir, 'app'), 'state saved in the root state directory');
-  is($t->read_home_file('.local/state/update_config/app'), undef, 'no state saved in the home');
+  is(
+    [list_dir($state_dir)],
+    [match(qr/^app[.]json-[0-9a-f]{16}$/x)],
+    'state saved in the root state directory, named after the target');
+  is([list_dir($t->home_path('.local/state/update_config'))], [], 'no state saved in the home');
   $t->add_fragment('app', qq{FILENAME app.json\nMERGE json\nNEED ROOT\n\n{"a": 1}\n});
   $t->run($env, '--root');
   is($t->read_home_file('app.json'), qq{{\n  "a": 1\n}\n},
@@ -249,11 +291,11 @@ subtest 'Invalid configurations' => sub {
   isnt($r->{exit}, 0, 'unsupported format: failure');
   like($r->{stderr}, qr/Unsupported[ ]MERGE[ ]format:[ ]'xml'/x, 'unsupported format: message');
 
-  $t->add_fragment('app', qq{MERGE json\nGUARD SUFFIX foo\n\n{}\n});
+  $t->add_fragment('app', qq{MERGE json\nENTIRE FILE\n\n{}\n});
   $r = $t->run();
   like(
     $r->{stderr},
-    qr/MERGE[ ]cannot[ ]be[ ]used[ ]with[ ]GUARD[ ]SUFFIX/x,
+    qr/MERGE[ ]cannot[ ]be[ ]used[ ]with[ ]ENTIRE[ ]FILE/x,
     'incompatible directive');
 
   $t->add_fragment('app', qq{MERGE ARRAYS union\n\n{}\n});
