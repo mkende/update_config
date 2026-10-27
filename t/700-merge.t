@@ -211,11 +211,11 @@ subtest 'Format from the extension' => sub {
   is(
     [list_dir($t->home_path('.local/state/update_config'))],
     bag {
-      item match(qr/^app[.]json-x-[0-9a-f]{16}$/x);
+      item match(qr/^app[.]json-[0-9a-f]{16}$/x);
       item match(qr/^other[.]JSON-[0-9a-f]{16}$/x);
       end;
     },
-    'states saved, with the default guard suffix');
+    'states saved');
   $t->add_fragment('app.json [x]', qq{MERGE\n\n{}\n});
   $t->run();
   is($t->read_home_file('app.json'), qq{{}\n}, 'saved state used');
@@ -248,30 +248,36 @@ subtest 'DIR' => sub {
 
 subtest 'Several fragments merged into the same file' => sub {
   my $t = UpdateConfigTest->new;
-  $t->add_fragment('a/app', qq{FILENAME app.json\nMERGE json\nGUARD SUFFIX a\n\n{"a": 1}\n});
-  $t->add_fragment('app [b]', qq{FILENAME app.json\nMERGE json\n\n{"b": 1}\n});
+  $t->add_fragment('a/app', qq{FILENAME app.json\nMERGE json\n\n{"a": 1}\n});
+  $t->add_fragment('b/app', qq{FILENAME app.json\nMERGE json\n\n{"b": 1}\n});
+  $t->add_fragment('app [c]', qq{FILENAME app.json\nMERGE json\nGUARD SUFFIX c\n\n{"c": 1}\n});
   my $r = $t->run();
-  is($r->{exit}, 0, 'success');
-  is($t->read_home_file('app.json'), qq{{\n  "a": 1,\n  "b": 1\n}\n}, 'both fragments merged');
+  is($r->{exit}, 0, 'success, with or without a guard suffix');
+  is(
+    $t->read_home_file('app.json'),
+    qq{{\n  "a": 1,\n  "b": 1,\n  "c": 1\n}\n},
+    'all fragments merged');
   is(
     [list_dir($t->home_path('.local/state/update_config'))],
     bag {
-      item match(qr/^app[.]json-a-[0-9a-f]{16}$/x);
-      item match(qr/^app[.]json-b-[0-9a-f]{16}$/x);
+      item match(qr/^app[.]json-[0-9a-f]{16}$/x) for 1 .. 3;
       end;
     },
-    'one state per guard suffix (explicit or from the name of the fragment)');
-  $t->add_fragment('a/app', qq{FILENAME app.json\nMERGE json\nGUARD SUFFIX a\n\n{}\n});
+    'one state per fragment');
+  $t->add_fragment('a/app', qq{FILENAME app.json\nMERGE json\n\n{}\n});
   $t->run();
-  is($t->read_home_file('app.json'), qq{{\n  "b": 1\n}\n}, 'value removed using its own state');
+  is(
+    $t->read_home_file('app.json'),
+    qq{{\n  "b": 1,\n  "c": 1\n}\n},
+    'value removed using the state of its fragment');
 
-  $t->add_fragment('c/app', qq{FILENAME app.json\nMERGE json\nGUARD SUFFIX b\n\n{"c": 1}\n});
+  $t->add_fragment('d/app', qq{FILENAME app.json\nGUARD SUFFIX d\n\nnot merged\n});
   $r = $t->run();
-  isnt($r->{exit}, 0, 'same guard suffix: failure');
+  isnt($r->{exit}, 0, 'MERGE and guarded fragments on the same file: failure');
   like(
     $r->{stderr},
-    qr/Fragments[ ]'c\/app'[ ]and[ ]'app[ ]\[b\]'[ ]can't[ ]both[ ]be[ ]applied/x,
-    'same guard suffix: message');
+    qr/Fragments[ ]'.*'[ ]and[ ]'d\/app'[ ]can't[ ]both[ ]be[ ]applied/x,
+    'MERGE and guarded fragments on the same file: message');
 };
 
 subtest 'YAML' => sub {

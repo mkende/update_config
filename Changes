@@ -9,10 +9,12 @@ Revision history for Perl distribution App-UpdateConfig
  - Accept the MERGE formats in any case (e.g. MERGE TOML).
  - Add a DIR directive to set the directory of the target file.
  - Allow fragments with the same name in different directories, and fail when
-   several fragments are applied to the same file with the same guard suffix.
- - Save the state of the MERGE fragments per target file and guard suffix, and
-   allow GUARD SUFFIX with MERGE to merge several fragments into the same file.
-   The states saved by the previous version are not reused.
+   several fragments are applied to the same file with the same guard suffix
+   (unless they all use MERGE).
+ - Save the state of the MERGE fragments per fragment and target file, so that
+   several fragments can be merged into the same file. GUARD SUFFIX is now
+   allowed (and ignored) with MERGE. The states saved by the previous version
+   are not reused.
  - Use the suffix between brackets in the name of a fragment (e.g. "foo [bar]")
    as its default guard suffix. Fragments that rely on this name without a
    GUARD SUFFIX directive will add a new block in their target file, instead of
