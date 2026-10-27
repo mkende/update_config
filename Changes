@@ -13,6 +13,10 @@ Revision history for Perl distribution App-UpdateConfig
  - Save the state of the MERGE fragments per target file and guard suffix, and
    allow GUARD SUFFIX with MERGE to merge several fragments into the same file.
    The states saved by the previous version are not reused.
+ - Use the suffix between brackets in the name of a fragment (e.g. "foo [bar]")
+   as its default guard suffix. Fragments that rely on this name without a
+   GUARD SUFFIX directive will add a new block in their target file, instead of
+   updating the existing one.
 
 1.01 - 2026-10-26
  - Add support for a MERGE directive to handle structured formats.

@@ -179,6 +179,15 @@ sub clean_output_path {
   my ($name) = @_;
   return $name =~ s/\s*(?:\[.*\]\s*)$//r;
 }
+# Returns the default guard suffix of the fragment with the given name: the
+# suffix between brackets at the end of its name, if any. Returns undef
+# otherwise.
+sub get_default_guard_suffix {
+  my ($name) = @_;
+  my ($suffix) = basename($name) =~ m/\s*\[(.*)\]\s*$/;
+  return defined $suffix && $suffix ne '' ? $suffix : undef;
+}
+
 # parse_file_name($file_name)
 # Returns a tuple (mode, input_spec, output_spec) where mode is one
 # of 'file' or 'pipe' specifying if the input and output spec will
@@ -305,8 +314,12 @@ sub parse_directive {
   return 1;
 }
 
+# Returns the configuration of a fragment, as a hash with the values of its
+# directives, its `content` and its guard markers. When the optional $name of
+# the fragment is given, it is used for the defaults of some directives (see
+# get_default_guard_suffix).
 sub parse_file_conf {
-  my ($file) = @_;
+  my ($file, $name) = @_;
   my %conf;
   $file =~ s/\n{2,}$/\n/;
   $file =~ s/^\n+//;
@@ -315,6 +328,10 @@ sub parse_file_conf {
     my ($line, $end) = ($1, $LAST_MATCH_END[0]);
     last if not parse_directive($line, \%conf);
     substr $file, 0, $end, '';
+  }
+  if (defined $name and not exists $conf{guard_suffix}) {
+    my $suffix = get_default_guard_suffix($name);
+    $conf{guard_suffix} = $suffix if defined $suffix;
   }
   my $comments_decorator = ($conf{comments_char} // DEFAULT_COMMENTS_CHAR) x COMMENTS_CHAR_COUNT;
   my $guard = DEFAULT_GUARD_STRING.(exists $conf{guard_suffix} ? ':'.$conf{guard_suffix} : '');
@@ -746,7 +763,7 @@ sub by_fragment_order {
 # parse_file_name). Returns undef if its REQUIRE guards are not verified.
 sub prepare_fragment {
   my ($name, $content) = @_;
-  my %conf = parse_file_conf($content);
+  my %conf = parse_file_conf($content, $name);
   my $target = get_target($name, \%conf);
   my $display_name = $target.($conf{guard_suffix} ? ' ('.$conf{guard_suffix}.')' : '');
   return if not check_requirements(\%conf, $display_name);
@@ -925,10 +942,12 @@ the C<FILENAME> directive described below (e.g. to update your F<.bashrc>).
 
 You can organize the fragments in sub-directories, but these are not part of
 the target path: only the base name of a fragment is used as its default
-target. A suffix between brackets in that name is ignored (e.g. F<bashrc
-[linux]> and F<bashrc [macos]>). Several fragments can be applied to the same
-file only if they have different guard suffixes (see the C<GUARD SUFFIX>
-directive), otherwise the program fails without applying any fragment. Hidden
+target. A suffix between brackets in that name is not part of the target but
+it is the default guard suffix of the fragment (e.g. F<bashrc [linux]> and
+F<bashrc [macos]> both target F<.bashrc>, with the C<linux> and C<macos> guard
+suffixes). Several fragments can be applied to the same file only if they have
+different guard suffixes (see the C<GUARD SUFFIX> directive), otherwise the
+program fails without applying any fragment. Hidden
 directories are ignored too and fragments are processed in alphabetical order
 of their base name, ignoring case.
 
@@ -973,7 +992,8 @@ the guard lines (it is repeated three times). The default is C<#>.
 
 Adds a suffix to the guard lines, which then look like
 C<###AUTO-CONFIG:suffix START###>. You need this if several fragments target
-the same file. With C<MERGE>, there are no guard lines but the suffix is
+the same file. By default, the suffix between brackets at the end of the name of
+the fragment is used, if any. With C<MERGE>, there are no guard lines but the suffix is
 still needed to merge several fragments into the same file.
 
 =item C<IS PREFIX>

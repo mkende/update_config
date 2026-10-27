@@ -16,8 +16,7 @@ our $VERSION = 0.01;
 
 {
   my $t = UpdateConfigTest->new;
-  $t->add_fragment('vimrc [prefix]',
-    "FILENAME .vimrc\nREM A comment.\nCOMMENTS CHAR \"\n\nset nu\n");
+  $t->add_fragment('vimrc', "FILENAME .vimrc\nREM A comment.\nCOMMENTS CHAR \"\n\nset nu\n");
   my $r = $t->run();
   is($t->read_home_file('.vimrc'), guarded("set nu\n", '"'), 'FILENAME, REM and COMMENTS CHAR');
   like($r->{stdout}, qr/^Updated:[ ][.]vimrc$/mx, 'the target name is reported');
@@ -69,9 +68,15 @@ our $VERSION = 0.01;
 {
   my $t = UpdateConfigTest->new;
   $t->add_fragment('target [anything]', "content\n");
-  $t->run();
-  is($t->read_home_file('target'),
-    guarded("content\n"), 'bracket suffix removed from the target name');
+  $t->add_fragment('z [x]', "FILENAME target\nGUARD SUFFIX y\nother\n");
+  $t->add_fragment('empty []', "empty\n");
+  my $r = $t->run();
+  is(
+    $t->read_home_file('target'),
+    guarded("content\n", undef, 'anything').guarded("other\n", undef, 'y'),
+    'bracket suffix removed from the target name and used as default guard suffix');
+  like($r->{stdout}, qr/^Updated:[ ]target[ ][(]anything[)]$/mx, 'default guard suffix reported');
+  is($t->read_home_file('empty'), guarded("empty\n"), 'empty brackets: no guard suffix');
 }
 
 {
@@ -165,7 +170,10 @@ our $VERSION = 0.01;
   $t->add_fragment('absolute', "DIR ${abs_dir}\nabsolute\n");
   my $r = $t->run();
   is($r->{exit}, 0, 'DIR: success');
-  is($t->read_home_file('.config/app/file'), guarded("content\n"), 'DIR: fragment name used');
+  is(
+    $t->read_home_file('.config/app/file'),
+    guarded("content\n", undef, 'x'),
+    'DIR: fragment name used');
   is(
     $t->read_home_file('.config/app/sub/renamed'),
     guarded("other\n", undef, 'y'),
