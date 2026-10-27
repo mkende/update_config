@@ -4,8 +4,8 @@ Revision history for Perl distribution App-UpdateConfig
  - Use cpanm, when available, to install the missing modules.
  - Install the missing modules globally (with sudo if needed) when the program
    is itself installed globally.
- - Fix the installation command in the README, which did not install the
-   optional modules.
+ - Generate the MYMETA files, so that cpanm --with-recommends (the command in
+   the README) installs the optional modules.
  - Accept the MERGE formats in any case (e.g. MERGE TOML).
  - Add a DIR directive to set the directory of the target file.
  - Allow fragments with the same name in different directories, and fail when

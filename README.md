@@ -21,10 +21,10 @@ host or on remote hosts.
 
 ## Installation
 
-From CPAN, including the optional modules used by `MERGE`:
+From CPAN, including the optional modules used by `MERGE` and `--help`:
 
 ```sh
-cpanm App::UpdateConfig Config::Tiny TOML::Tiny YAML::PP
+cpanm --with-recommends App::UpdateConfig
 ```
 
 Or as a standalone script, which installs its own dependencies when it first
