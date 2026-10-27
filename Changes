@@ -1,28 +1,12 @@
 Revision history for Perl distribution App-UpdateConfig
 
 1.02 - ????-??-??
- - Use cpanm, when available, to install the missing modules.
- - Install the missing modules globally (with sudo if needed) when the program
-   is itself installed globally.
- - Generate the MYMETA files, so that cpanm --with-recommends (the command in
-   the README) installs the optional modules.
- - Accept the MERGE formats in any case (e.g. MERGE TOML).
+ - Use cpanm when available to install the missing modules.
+ - Install the missing modules globally with sudo when needed.
+ - Accept the MERGE formats in upper case or from the file name.
  - Add a DIR directive to set the directory of the target file.
- - Allow fragments with the same name in different directories, and fail when
-   several fragments are applied to the same file with the same guard suffix
-   (unless they all use MERGE).
- - Save the state of the MERGE fragments per fragment and target file, so that
-   several fragments can be merged into the same file. GUARD SUFFIX is now
-   allowed (and ignored) with MERGE. The states saved by the previous version
-   are not reused.
- - Use the suffix between brackets in the name of a fragment (e.g. "foo [bar]")
-   as its default guard suffix. Fragments that rely on this name without a
-   GUARD SUFFIX directive will add a new block in their target file, instead of
-   updating the existing one.
- - Use the suffix between brackets in the name of a directory (e.g. "[bar]" or
-   "foo [bar]") as the default guard suffix of the fragments that it contains.
- - Allow the MERGE directive without a format, which is then given by the
-   extension of the target file (e.g. a fragment named "foo.toml [bar]").
+ - Various improvements to handling multiple fragments with the same target.
+ - Extract the default guard suffix from file or dir names (e.g. "foo [bar]").
 
 1.01 - 2026-10-26
  - Add support for a MERGE directive to handle structured formats.
