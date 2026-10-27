@@ -131,6 +131,41 @@ our $VERSION = 0.01;
 
 {
   my $t = UpdateConfigTest->new;
+  my $abs_dir = catfile($t->root, 'abs');
+  $t->add_fragment('file [x]', "DIR .config/app\ncontent\n");
+  $t->add_fragment('other', "DIR .config/app\nFILENAME sub/renamed\nGUARD SUFFIX y\nother\n");
+  $t->add_fragment('absolute', "DIR ${abs_dir}\nabsolute\n");
+  my $r = $t->run();
+  is($r->{exit}, 0, 'DIR: success');
+  is($t->read_home_file('.config/app/file'), guarded("content\n"), 'DIR: fragment name used');
+  is(
+    $t->read_home_file('.config/app/sub/renamed'),
+    guarded("other\n", undef, 'y'),
+    'DIR: FILENAME relative to DIR');
+  is(UpdateConfigTest::read_file(catfile($abs_dir, 'absolute')),
+    guarded("absolute\n"), 'DIR: absolute path');
+}
+
+{
+  my $t = UpdateConfigTest->new;
+  $t->add_fragment('file', "DIR dir\nFILENAME /etc/file\ncontent\n");
+  my $r = $t->run();
+  isnt($r->{exit}, 0, 'DIR with an absolute FILENAME: failure');
+  like(
+    $r->{stderr},
+    qr/FILENAME[ ]cannot[ ]be[ ]an[ ]absolute[ ]path[ ]with[ ]DIR[ ]in[ ]'file'/x,
+    'DIR with an absolute FILENAME: message');
+
+  $t->add_fragment('file', "DIR dir\nFILENAME crontab -l,crontab -\ncontent\n");
+  $r = $t->run();
+  like(
+    $r->{stderr},
+    qr/DIR[ ]cannot[ ]be[ ]used[ ]with[ ]commands[ ]in[ ]'file'/x,
+    'DIR with commands: message');
+}
+
+{
+  my $t = UpdateConfigTest->new;
   my $in = catfile($t->root, 'pipe_in');
   my $out = catfile($t->root, 'pipe_out');
   UpdateConfigTest::write_file($in, "from pipe\n");

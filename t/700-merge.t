@@ -190,6 +190,15 @@ subtest 'Upper case format' => sub {
     'saved state used with another case');
 };
 
+subtest 'DIR' => sub {
+  my $t = UpdateConfigTest->new;
+  $t->add_fragment('app.json', qq{DIR .config/app\nMERGE json\n\n{"a": 1, "b": 2}\n});
+  $t->run();
+  $t->add_fragment('app.json', qq{DIR .config/app\nMERGE json\n\n{"a": 1}\n});
+  $t->run();
+  is($t->read_home_file('.config/app/app.json'), qq{{\n  "a": 1\n}\n}, 'saved state used');
+};
+
 subtest 'YAML' => sub {
   need_module('YAML::PP');
   my $t = UpdateConfigTest->new;

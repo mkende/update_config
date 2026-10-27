@@ -263,6 +263,7 @@ sub need_perm_update {
 # others store their value directly.
 my %DIRECTIVES = (
   'COMMENTS CHAR' => {key => 'comments_char'},
+  'DIR' => {key => 'dir'},
   'ENTIRE FILE' => {key => 'entire_file', flag => 1},
   'FILENAME' => {key => 'filename'},
   'GUARD SUFFIX' => {key => 'guard_suffix'},
@@ -587,7 +588,7 @@ sub read_merge_state {
   my $path = get_merge_state_path($name, $conf);
   return {} if not -f $path;
   my %old = parse_file_conf(scalar read_file($path));
-  return {} if ($old{filename} // $name) ne $target or $old{merge} ne $conf->{merge};
+  return {} if get_target($name, \%old) ne $target or $old{merge} ne $conf->{merge};
   return parse_merge_data($old{merge}, $old{content}, "the saved state '${path}'");
 }
 
@@ -712,12 +713,24 @@ sub get_contents {
   return ('', merge_content($mode, $in_path, $conf, $old), '');
 }
 
+# Returns the target of the given fragment, from its FILENAME and DIR directives
+# or from its name, in the format expected by parse_file_name. Dies if these
+# directives are incompatible.
+sub get_target {
+  my ($name, $conf) = @_;
+  my $file = $conf->{filename} // clean_output_path($name);
+  return $file if not exists $conf->{dir};
+  die "FILENAME cannot be an absolute path with DIR in '${name}'.\n" if $file =~ m{^/};
+  die "DIR cannot be used with commands in '${name}'.\n" if $file =~ m/,/;
+  return catfile($conf->{dir}, $file);
+}
+
 # Applies the given fragment (depending on the command line flags). Returns
 # true if the fragment needs root and was not applied.
 sub apply_fragment {
   my ($file, $content) = @_;
   my %conf = parse_file_conf($content);
-  my $target = $conf{filename} // $file;
+  my $target = get_target($file, \%conf);
   my $display_name = $target.($conf{guard_suffix} ? ' ('.$conf{guard_suffix}.')' : '');
   return 0 if not check_requirements(\%conf, $display_name);
   my ($mode, $in_path, $out_path) = parse_file_name($target);
@@ -890,6 +903,13 @@ also be made of two commands separated by a comma. In that case, the current
 content is read from the output of the first command and the new content is
 passed on the input of the second one (this is useful for C<crontab -l,
 crontab ->).
+
+=item C<DIR> I<path>
+
+Sets the directory of the target file, which keeps the name of the fragment
+(or the one given by C<FILENAME>, which must then be a relative path). The
+path is relative to your home directory, unless it is an absolute path. This
+directive cannot be used when the target is made of two commands.
 
 =item C<COMMENTS CHAR> I<char>
 
