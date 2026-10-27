@@ -19,6 +19,8 @@ Revision history for Perl distribution App-UpdateConfig
    updating the existing one.
  - Use the suffix between brackets in the name of a directory (e.g. "[bar]" or
    "foo [bar]") as the default guard suffix of the fragments that it contains.
+ - Allow the MERGE directive without a format, which is then given by the
+   extension of the target file (e.g. a fragment named "foo.toml [bar]").
 
 1.01 - 2026-10-26
  - Add support for a MERGE directive to handle structured formats.

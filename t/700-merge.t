@@ -200,6 +200,43 @@ subtest 'Upper case format' => sub {
     'saved state used with another case');
 };
 
+subtest 'Format from the extension' => sub {
+  my $t = UpdateConfigTest->new;
+  $t->add_fragment('app.json [x]', qq{MERGE\n\n{"a": 1}\n});
+  $t->add_fragment('other', qq{FILENAME other.JSON\nMERGE\n\n{"b": 1}\n});
+  my $r = $t->run();
+  is($r->{exit}, 0, 'success');
+  is($t->read_home_file('app.json'), qq{{\n  "a": 1\n}\n}, 'from the name of the fragment');
+  is($t->read_home_file('other.JSON'), qq{{\n  "b": 1\n}\n}, 'from FILENAME, in upper case');
+  is(
+    [list_dir($t->home_path('.local/state/update_config'))],
+    bag {
+      item match(qr/^app[.]json-x-[0-9a-f]{16}$/x);
+      item match(qr/^other[.]JSON-[0-9a-f]{16}$/x);
+      end;
+    },
+    'states saved, with the default guard suffix');
+  $t->add_fragment('app.json [x]', qq{MERGE\n\n{}\n});
+  $t->run();
+  is($t->read_home_file('app.json'), qq{{}\n}, 'saved state used');
+
+  $t->add_fragment('app.json [x]', qq{FILENAME app.json.bak\nMERGE\n\n{}\n});
+  $r = $t->run();
+  isnt($r->{exit}, 0, 'unknown extension: failure');
+  like(
+    $r->{stderr},
+    qr/Cannot[ ]find[ ]the[ ]MERGE[ ]format[ ]of[ ]'app[.]json[ ]\[x\]'[ ]from[ ]the[ ]extension[ ]of[ ]'app[.]json[.]bak'/x,
+    'unknown extension: message');
+};
+
+subtest 'Format from the yml extension' => sub {
+  need_module('YAML::PP');
+  my $t = UpdateConfigTest->new;
+  $t->add_fragment('app.yml', qq{MERGE\n\na: 1\n});
+  $t->run();
+  is(YAML::PP->new->load_string($t->read_home_file('app.yml')), {a => 1}, 'merged as YAML');
+};
+
 subtest 'DIR' => sub {
   my $t = UpdateConfigTest->new;
   $t->add_fragment('app.json', qq{DIR .config/app\nMERGE json\n\n{"a": 1, "b": 2}\n});

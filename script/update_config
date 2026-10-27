@@ -273,7 +273,8 @@ sub need_perm_update {
 # gives the key of the fragment configuration where the directive is stored
 # (if any) and how: `flag` directives take no value and set their key to 1,
 # `multiple` directives can be repeated and store their values in a list, the
-# others store their value directly.
+# others store their value directly (an empty string for `optional` directives
+# without a value).
 my %DIRECTIVES = (
   'COMMENTS CHAR' => {key => 'comments_char'},
   'DIR' => {key => 'dir'},
@@ -282,7 +283,7 @@ my %DIRECTIVES = (
   'GUARD SUFFIX' => {key => 'guard_suffix'},
   'IS PREFIX' => {key => 'is_prefix', flag => 1},
   'MAKE EXECUTABLE' => {key => 'make_executable', flag => 1},
-  'MERGE' => {key => 'merge'},
+  'MERGE' => {key => 'merge', optional => 1},
   'MERGE ARRAYS' => {key => 'merge_arrays'},
   'NEED ROOT' => {key => 'need_root', flag => 1},
   # TODO: validate that the mode is a correct octal value.
@@ -301,8 +302,10 @@ sub parse_directive {
   my ($line, $conf) = @_;
   my ($name, $value) = $line =~ m/^(${DIRECTIVE_RE}) (?: \s+ (\S.*?) )? \s*$/x or return 0;
   my $directive = $DIRECTIVES{$name};
-  # Flag directives must not have a value and the other ones must have one.
-  return 0 if $directive->{flag} ? defined $value : not defined $value;
+  # Flag directives must not have a value and the other ones must have one
+  # (unless it is optional).
+  return 0 if $directive->{flag} ? defined $value : !defined $value && !$directive->{optional};
+  $value //= '';
   my $key = $directive->{key};
   if (not defined $key) {
     # Nothing to do, this is a comment.
@@ -330,6 +333,9 @@ sub parse_file_conf {
     my ($line, $end) = ($1, $LAST_MATCH_END[0]);
     last if not parse_directive($line, \%conf);
     substr $file, 0, $end, '';
+  }
+  if (defined $name and defined $conf{merge} and $conf{merge} eq '') {
+    $conf{merge} = get_merge_format($name, get_target($name, \%conf));
   }
   if (defined $name and not exists $conf{guard_suffix}) {
     my $suffix = get_default_guard_suffix($name);
@@ -376,13 +382,32 @@ my %MERGE_FORMATS = (
   },
 );
 
+# The file extensions, other than the names of the MERGE formats, that are
+# recognized by get_merge_format.
+my %MERGE_EXTENSIONS = (yml => 'yaml');
+
+# Returns the MERGE format of the fragment with the given name, from the
+# extension of its target (ignoring the suffix between brackets). Dies if that
+# extension is not a known format.
+sub get_merge_format {
+  my ($name, $target) = @_;
+  my ($extension) = clean_output_path($target) =~ m/[.](\w+)$/;
+  $extension = lc($extension // '');
+  my $format = $MERGE_EXTENSIONS{$extension} // $extension;
+  die "Cannot find the MERGE format of '${name}' from the extension of '${target}'.\n"
+      if not exists $MERGE_FORMATS{$format};
+  return $format;
+}
+
 # Dies if the MERGE directives of a fragment configuration are invalid and sets
 # the default value of MERGE ARRAYS.
 sub validate_merge_conf {
   my ($conf) = @_;
   die "MERGE ARRAYS requires the MERGE directive.\n" if not exists $conf->{merge};
+  # Without a name, parse_file_conf does not know the target of the fragment,
+  # from which the format would be found.
   die "Unsupported MERGE format: '$conf->{merge}'.\n"
-      if not exists $MERGE_FORMATS{lc $conf->{merge}};
+      if $conf->{merge} ne '' and not exists $MERGE_FORMATS{lc $conf->{merge}};
   $conf->{merge} = lc $conf->{merge};
   $conf->{merge_arrays} //= 'auto';
   die "Invalid MERGE ARRAYS value: '$conf->{merge_arrays}'.\n"
@@ -1025,11 +1050,14 @@ guard lines.
 
 Makes the target file executable.
 
-=item C<MERGE> I<format>
+=item C<MERGE> [I<format>]
 
 Merges the data of the fragment into the target file instead of using guard
 lines, see L</Merged files> below. The format is one of C<json>, C<toml>,
-C<yaml> or C<ini> (case insensitive). This directive cannot be used with C<COMMENTS CHAR>,
+C<yaml> or C<ini> (case insensitive). Without a format, it is given by the
+extension of the target, which must be the last part of its name, ignoring
+the suffix between brackets (e.g. a fragment named F<config.toml [work]> is
+merged as C<toml>). The C<yml> extension is recognized too. This directive cannot be used with C<COMMENTS CHAR>,
 C<ENTIRE FILE> or C<IS PREFIX>.
 
 =item C<MERGE ARRAYS> I<mode>
