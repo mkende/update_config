@@ -4,6 +4,8 @@ Revision history for Perl distribution App-UpdateConfig
  - Use cpanm, when available, to install the missing modules.
  - Install the missing modules globally (with sudo if needed) when the program
    is itself installed globally.
+ - Fix the installation command in the README, which did not install the
+   optional modules.
 
 1.01 - 2026-10-26
  - Add support for a MERGE directive to handle structured formats.
