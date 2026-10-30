@@ -1,5 +1,10 @@
 Revision history for Perl distribution App-UpdateConfig
 
+1.03 - ????-??-??
+ - Read the directives of a .update_config file in the directories of
+   fragments, which apply to all the fragments of these directories.
+ - Always write the FILENAME directive first in the exported fragments.
+
 1.02 - 2026-10-27
  - Use cpanm when available to install the missing modules.
  - Install the missing modules globally with sudo when needed.
