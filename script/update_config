@@ -42,7 +42,7 @@ BEGIN {
   @orig_argv = @ARGV;
   GetOptions(
     \%flags, 'silent', 'diff', 'help', 'test', 'list',
-    'root', 'no-root', 'export', 'dir=s', 'pack'
+    'root', 'no-root', 'export', 'dir=s', 'pack', 'force'
   ) or print_usage(0);
   print_usage(1) if $flags{help};
   print_usage(0) if @ARGV;
@@ -158,7 +158,8 @@ use constant DEFAULT_COMMENTS_CHAR => '#';
 use constant DEFAULT_GUARD_STRING => 'AUTO-CONFIG';
 use constant COMMENTS_CHAR_COUNT => 3;  # In the guard markers.
 use constant ARRAYS_MARKER => 'update_config_arrays';  # In MERGE fragments.
-use constant STATE_HASH_LENGTH => 16;  # Hex digits in the name of the MERGE states.
+use constant STATE_HASH_LENGTH => 16;  # Hex digits in the name of the saved states.
+use constant ENTIRE_FILE_STATE_HEADER => "ENTIRE FILE\n\n";  # In the ENTIRE FILE states.
 use constant DIR_CONF_NAME => '.update_config';  # The directives of a directory.
 
 sub get_home_dir {
@@ -714,11 +715,11 @@ sub merge_keyed_array {
 }
 
 # Returns the path of the file where the last applied version of the given
-# MERGE fragment (from prepare_fragment) is saved, which is specific to the
-# fragment (its path in the configuration directory) and to its target. The
-# NEED ROOT fragments are saved in a system directory so that the state of the
-# user is never written by root.
-sub get_merge_state_path {
+# MERGE or ENTIRE FILE fragment (from prepare_fragment) is saved, which is
+# specific to the fragment (its path in the configuration directory) and to its
+# target. The NEED ROOT fragments are saved in a system directory so that the
+# state of the user is never written by root.
+sub get_state_path {
   my ($fragment) = @_;
   my ($name, $in_path, $conf) = @{$fragment}{qw(name in_path conf)};
   my $dir;
@@ -741,21 +742,33 @@ sub get_merge_state_path {
 sub read_merge_state {
   my ($fragment) = @_;
   my $conf = $fragment->{conf};
-  my $path = get_merge_state_path($fragment);
+  my $path = get_state_path($fragment);
   return {} if not -f $path;
   my %old = parse_file_conf(scalar read_file($path));
   return {} if ($old{merge} // '') ne $conf->{merge};
   return parse_merge_data($old{merge}, $old{content}, "the saved state '${path}'");
 }
 
-# Saves the format and the content of the given MERGE fragment (from
-# prepare_fragment), so that it can be read by read_merge_state on the next
-# run.
-sub save_merge_state {
+# Returns the content of the given ENTIRE FILE fragment (from prepare_fragment)
+# when it was last applied, or undef if it was not saved.
+sub read_entire_file_state {
+  my ($fragment) = @_;
+  my $path = get_state_path($fragment);
+  return if not -f $path;
+  my $content = read_file($path);
+  return if substr($content, 0, length ENTIRE_FILE_STATE_HEADER) ne ENTIRE_FILE_STATE_HEADER;
+  return substr $content, length ENTIRE_FILE_STATE_HEADER;
+}
+
+# Saves the content of the given MERGE (with its format) or ENTIRE FILE
+# fragment (from prepare_fragment), so that it can be read by read_merge_state
+# or read_entire_file_state on the next run.
+sub save_state {
   my ($fragment) = @_;
   my $conf = $fragment->{conf};
-  my $path = get_merge_state_path($fragment);
-  my $content = "MERGE $conf->{merge}\n\n$conf->{content}";
+  my $path = get_state_path($fragment);
+  my $header = $conf->{merge} ? "MERGE $conf->{merge}\n\n" : ENTIRE_FILE_STATE_HEADER;
+  my $content = $header.$conf->{content};
   return if -f $path and read_file($path) eq $content;
   my $dir = dirname($path);
   make_path($dir) if not -d $dir;
@@ -1026,6 +1039,23 @@ sub check_conflicts {
   return;
 }
 
+# Returns true, after printing the modifications, if the target of the given
+# ENTIRE FILE fragment (from prepare_fragment), whose current content is given,
+# was modified since the fragment was last applied (according to its saved
+# state). Returns false for the other fragments.
+sub is_target_modified {
+  my ($fragment, $current) = @_;
+  my ($conf, $mode, $in_path, $display_name) = @{$fragment}{qw(conf mode in_path display_name)};
+  return 0 if not $conf->{entire_file};
+  return 0 if $mode eq 'file' and not -e $in_path;
+  my $saved = read_entire_file_state($fragment) // return 0;
+  return 0 if $saved eq $current;
+  my $diff = diff(\$saved, \$current, {CONTEXT => 0});
+  print STDERR "Skipping ${display_name}, which was modified since its last update (use --force "
+      ."to overwrite it):\n${diff}";
+  return 1;
+}
+
 # Applies the given fragment (from prepare_fragment), depending on the command
 # line flags. Returns true if the fragment needs root and was not applied.
 sub apply_fragment {
@@ -1037,7 +1067,7 @@ sub apply_fragment {
   my $can_write = !$flags{test} && !$conf->{need_root} == !$flags{root};
   if ($old_content eq $new_content and not need_perm_update($out_path, $mode, $conf)) {
     print "Nothing to do for: $display_name\n" unless $flags{silent};
-    save_merge_state($fragment) if $conf->{merge} and $can_write;
+    save_state($fragment) if ($conf->{merge} or $conf->{entire_file}) and $can_write;
     return 0;
   }
   if ($flags{diff}) {
@@ -1046,9 +1076,13 @@ sub apply_fragment {
   }
   return 1 if $conf->{need_root} and not $flags{root};
   return 0 if $flags{root} and not $conf->{need_root};
+  return 0
+      if $old_content ne $new_content
+      and not $flags{force}
+      and is_target_modified($fragment, $old_content);
   if ($can_write) {
     update_target($mode, $out_path, $before, $new_content, $after, $conf);
-    save_merge_state($fragment) if $conf->{merge};
+    save_state($fragment) if $conf->{merge} or $conf->{entire_file};
   }
   print "Updated: ${display_name}\n" unless $flags{silent};
   return 0;
@@ -1109,7 +1143,7 @@ remote hosts.
 =head1 SYNOPSIS
 
 update_config [--test] [--help] [--diff] [--silent] [--list] [--dir directory]
-[--root|--no-root] [--export] [--pack]
+[--root|--no-root] [--force] [--export] [--pack]
 
 =head1 DESCRIPTION
 
@@ -1149,6 +1183,9 @@ abbreviated down to a single character.
            'NEED ROOT'.
 
   --no-root  Do not attempt to install the 'NEED ROOT' fragments.
+
+  --force  Overwrite the targets of the 'ENTIRE FILE' fragments even if they
+           were modified since they were last written by the program.
 
   --export Export in the current directory all the files that are embedded
            in the script, with their target and the directives that they
@@ -1274,7 +1311,11 @@ guards are not already present.
 =item C<ENTIRE FILE>
 
 Replaces the entire target file with the content of the fragment, without any
-guard lines.
+guard lines. The last applied version of the fragment is saved (see
+L</Merged files>) and, if the target was modified since then, it is not
+overwritten: the program prints the modifications that would be lost, skips
+the fragment and continues with the other ones. The C<--force> option
+overwrites the target anyway. A target that does not exist is always written.
 
 =item C<MAKE EXECUTABLE>
 

@@ -11,6 +11,9 @@ Revision history for Perl distribution App-UpdateConfig
  - Replace a "dot_" prefix in the name of a fragment by a dot in its default
    target (e.g. "dot_bashrc" targets ".bashrc"). Fragments with such a name
    and no FILENAME directive will be written to a new target.
+ - Save the last applied version of the ENTIRE FILE fragments and do not
+   overwrite their target if it was modified since then, unless the new
+   --force option is used.
 
 1.02 - 2026-10-27
  - Use cpanm when available to install the missing modules.
