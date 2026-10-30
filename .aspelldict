@@ -1,4 +1,4 @@
-personal_ws-1.1 en 69 
+personal_ws-1.1 en 72 
 Alacritty
 CONFIG
 CreateNewWindow
@@ -27,6 +27,7 @@ catfile
 chdir
 conf
 config
+confs
 cpan
 cpanm
 crontab
@@ -36,6 +37,7 @@ deco
 dev
 dir
 dirname
+dirs
 dotfiles
 env
 expr
@@ -48,6 +50,7 @@ macos
 perl
 perldoc
 pre
+rc
 refaddr
 sha
 stderr
