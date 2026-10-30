@@ -293,6 +293,7 @@ sub need_perm_update {
 # others store their value directly (an empty string for `optional` directives
 # without a value).
 my %DIRECTIVES = (
+  'BASE' => {key => 'base', multiple => 1},
   'COMMENTS CHAR' => {key => 'comments_char'},
   'DIR' => {key => 'dir'},
   'ENTIRE FILE' => {key => 'entire_file', flag => 1},
@@ -302,6 +303,7 @@ my %DIRECTIVES = (
   'MAKE EXECUTABLE' => {key => 'make_executable', flag => 1},
   'MERGE' => {key => 'merge', optional => 1},
   'MERGE ARRAYS' => {key => 'merge_arrays'},
+  'MIRROR' => {key => 'mirror', flag => 1},
   'NEED ROOT' => {key => 'need_root', flag => 1},
   # TODO: validate that the mode is a correct octal value.
   'PERM' => {key => 'perm'},
@@ -364,7 +366,17 @@ sub parse_dir_conf {
     next if $line !~ m/\S/;
     parse_directive($line, \%conf) or die "Invalid directive in '${name}': '${line}'.\n";
   }
+  check_dir_and_mirror(\%conf, $name);
   return \%conf;
+}
+
+# Dies if the given directives (from parse_directive) of the file with the
+# given name contain both DIR and MIRROR.
+sub check_dir_and_mirror {
+  my ($conf, $name) = @_;
+  die "DIR and MIRROR cannot be used together in '${name}'.\n"
+      if exists $conf->{dir} and exists $conf->{mirror};
+  return;
 }
 
 # Adds to the combined configuration $conf the directives of $new (from
@@ -376,6 +388,9 @@ sub parse_dir_conf {
 # `depth` hash-ref of $conf.
 sub add_conf {
   my ($conf, $new, $depth) = @_;
+  # DIR and MIRROR both set the directory of the target, the deepest one wins.
+  delete $conf->{mirror} if exists $new->{dir};
+  delete $conf->{dir} if exists $new->{mirror};
   for my $key (keys %{$new}) {
     if (ref $new->{$key} eq 'ARRAY') {
       push @{$conf->{$key}}, @{$new->{$key}};
@@ -410,6 +425,7 @@ sub get_inherited_conf {
 sub parse_file_conf {
   my ($file, $name, $dir_confs) = @_;
   my ($own, $content) = parse_directives($file);
+  check_dir_and_mirror($own, $name // 'the fragment');
   my %conf = defined $name ? %{get_inherited_conf($name, $dir_confs // {})} : (depth => {});
   add_conf(\%conf, $own, defined $name ? get_name_depth($name) : 0);
   # MERGE ARRAYS can be set in a directory for its fragments that use MERGE,
@@ -799,7 +815,7 @@ sub split_config_files {
 
 # The keys of the directives that are replaced by a single FILENAME directive
 # in the exported fragments.
-my %TARGET_KEYS = map { $_ => 1 } qw(filename dir);
+my %TARGET_KEYS = map { $_ => 1 } qw(base dir filename mirror);
 
 # Returns the text of the given directive, with the given value.
 sub format_directive {
@@ -903,21 +919,66 @@ sub get_contents {
   return ('', merge_content($mode, $in_path, $conf, $old), '');
 }
 
-# Returns the target of the given fragment, from its FILENAME and DIR directives
-# or from its name, in the format expected by parse_file_name. An absolute
-# FILENAME (or commands) ignores a DIR directive set in a parent directory.
-# Dies if these directives are incompatible.
+# Returns the given $path resolved relative to the $base path. Both are relative
+# to the home directory (an empty $base is the home directory itself), unless
+# they are absolute. A $path starting with `~` is relative to the home
+# directory, whatever the $base.
+sub resolve_path {
+  my ($base, $path) = @_;
+  return $path if $path =~ m{^/};
+  if ($path =~ m{^~(?:/+(.*))?$}) {
+    return $1 // '';
+  }
+  return $path if $base eq '';
+  return catfile($base, $path);
+}
+
+# Returns the given component of the name of a fragment (its base name or, with
+# the MIRROR directive, one of its directories), as it is used in its target:
+# without its suffix between brackets and with a `dot_` prefix replaced by a
+# dot (as hidden files are ignored in the configuration directory). $name is
+# the name of the fragment, used in error messages.
+sub get_target_name {
+  my ($name, $part) = @_;
+  my $clean = clean_output_path($part);
+  die "Cannot use '${part}' in the target of '${name}', its name is only a guard suffix.\n"
+      if $clean eq '';
+  return $clean =~ s/^dot_/./r;
+}
+
+# Returns the directory of the target of the fragment with the given name and
+# the MIRROR directive: the path of its directory relative to the one where
+# MIRROR is set (see get_target_name).
+sub get_mirrored_dir {
+  my ($name, $conf) = @_;
+  my @dirs = split m{/}, $name;
+  pop @dirs;
+  return join '/', map { get_target_name($name, $_) } @dirs[$conf->{depth}{mirror} .. $#dirs];
+}
+
+# Returns the target of the given fragment, from its BASE, DIR (or MIRROR) and
+# FILENAME directives and from its name, in the format expected by
+# parse_file_name. An absolute FILENAME (or one starting with `~` or made of
+# commands) ignores the BASE, DIR and MIRROR directives set in a parent
+# directory. Dies if these directives are incompatible.
 sub get_target {
   my ($name, $conf) = @_;
-  my $file = $conf->{filename} // clean_output_path(basename($name));
-  return $file if not exists $conf->{dir};
-  if ($file =~ m{^/} or $file =~ m/,/) {
+  my $file = $conf->{filename} // get_target_name($name, basename($name));
+  if ($file =~ m{^(?:/|~(?:/|$))} or $file =~ m/,/) {
     my $file_depth = exists $conf->{filename} ? $conf->{depth}{filename} : get_name_depth($name);
-    return $file if $conf->{depth}{dir} < $file_depth;
-    die "FILENAME cannot be an absolute path with DIR in '${name}'.\n" if $file =~ m{^/};
-    die "DIR cannot be used with commands in '${name}'.\n";
+    for my $d ('DIR', 'MIRROR') {
+      my $key = $DIRECTIVES{$d}{key};
+      next if not exists $conf->{$key} or $conf->{depth}{$key} < $file_depth;
+      die "${d} cannot be used with commands in '${name}'.\n" if $file =~ m/,/;
+      die "FILENAME cannot be an absolute path with ${d} in '${name}'.\n";
+    }
+    return $file =~ m/,/ ? $file : resolve_path('', $file);
   }
-  return catfile($conf->{dir}, $file);
+  my $dir = exists $conf->{mirror} ? get_mirrored_dir($name, $conf) : $conf->{dir};
+  my $target = '';
+  $target = resolve_path($target, $_)
+      for @{$conf->{base} // []}, grep { defined && $_ ne '' } $dir, $file;
+  return $target;
 }
 
 # Sorts the fragments by their base name and then by their path, ignoring case.
@@ -1110,13 +1171,14 @@ abbreviated down to a single character.
 Each fragment file describes a piece of content that should be present in a
 target file. By default, the target is a file directly in your home directory,
 with the same name as the fragment. However, hidden files are ignored when the
-fragments are read, so most of the time you will set the target explicitly with
-the C<FILENAME> directive described below (e.g. to update your F<.bashrc>).
+fragments are read, so a C<dot_> prefix in the name of a fragment is replaced
+by a dot in its target (e.g. F<dot_bashrc> targets F<.bashrc>). The target can
+also be set explicitly with the C<FILENAME> directive described below.
 
 You can organize the fragments in sub-directories, but these are not part of
 the target path: only the base name of a fragment is used as its default
-target. A suffix between brackets in that name is not part of the target but
-it is the default guard suffix of the fragment (e.g. F<bashrc [linux]> and
+target (unless the C<MIRROR> directive is used). A suffix between brackets in
+that name is not part of the target but it is the default guard suffix of the fragment (e.g. F<bashrc [linux]> and
 F<bashrc [macos]> both target F<.bashrc>, with the C<linux> and C<macos> guard
 suffixes). Several fragments can be applied to the same file only if they have
 different guard suffixes (see the C<GUARD SUFFIX> directive) or if they all
@@ -1150,7 +1212,10 @@ supported directives are the following:
 =item C<FILENAME> I<path>
 
 Sets the target file, instead of using the name of the fragment. The path is
-relative to your home directory, unless it is an absolute path. The path can
+relative to the directory given by C<DIR> or C<MIRROR> if any, itself relative
+to the base directory (your home directory, unless C<BASE> is used). An
+absolute path, or a path starting with C<~/> (relative to your home
+directory), ignores these directories. The path can
 also be made of two commands separated by a comma. In that case, the current
 content is read from the output of the first command and the new content is
 passed on the input of the second one (this is useful for C<crontab -l,
@@ -1160,8 +1225,33 @@ crontab ->).
 
 Sets the directory of the target file, which keeps the name of the fragment
 (or the one given by C<FILENAME>, which must then be a relative path). The
-path is relative to your home directory, unless it is an absolute path. This
-directive cannot be used when the target is made of two commands.
+path is relative to the base directory (your home directory, unless C<BASE> is
+used), unless it is an absolute path or it starts with C<~> (for your home
+directory). This directive cannot be used when the target is made of two
+commands, nor with C<MIRROR>.
+
+=item C<BASE> I<path>
+
+Sets the base directory of the target, which is your home directory by
+default: the C<DIR> and C<FILENAME> paths and the directories given by
+C<MIRROR> are relative to it. A relative path is relative to the previous base
+directory, which is the one set by a C<BASE> directive in a parent directory
+(see L</Directory directives>), if any, or your home directory otherwise. The
+path can also be absolute, or start with C<~> for a path relative to your home
+directory.
+
+=item C<MIRROR>
+
+Uses the structure of the configuration directory for the target, which is
+mostly useful in a F<.update_config> file (see L</Directory directives>): the
+directory of the target is the path of the directory of the fragment, relative
+to the directory where C<MIRROR> is set (and to the base directory, see
+C<BASE>). As for the name of the fragment, the suffixes between brackets are
+removed from the names of the mirrored directories (a directory whose name is
+only such a suffix can't be mirrored) and a C<dot_> prefix is replaced by a
+dot (e.g. F<dot_config/app [work]/dot_rc> targets F<.config/app/.rc>). A C<DIR>
+directive set deeper than C<MIRROR> replaces the mirrored path (and the
+reverse), and C<FILENAME> replaces the name of the fragment.
 
 =item C<COMMENTS CHAR> I<char>
 
@@ -1280,14 +1370,29 @@ that use C<MERGE>.
 
 =item *
 
-An absolute C<FILENAME> (or a pair of commands) ignores the C<DIR> directive
-set in a parent directory.
+The C<BASE> directives are all applied, each relative to the previous one.
+
+=item *
+
+An absolute C<FILENAME> (or a pair of commands, or a path starting with C<~/>)
+ignores the C<BASE>, C<DIR> and C<MIRROR> directives set in a parent
+directory.
 
 =back
 
 A C<FILENAME> directive in a F<.update_config> file sends all the fragments of
 the directory to the same target, which requires them to have different guard
 suffixes (e.g. from their names, like F<path [path]> and F<editor [editor]>).
+
+For example, with a F<config/.update_config> file containing:
+
+  BASE .config
+  MIRROR
+
+the fragment F<config/fish/config.fish> targets F<~/.config/fish/config.fish>,
+F<config/git [work]/config> targets F<~/.config/git/config> (with the C<work>
+guard suffix) and F<config/app/settings.json> containing C<DIR other> targets
+F<~/.config/other/settings.json>.
 
 =head2 Merged files
 

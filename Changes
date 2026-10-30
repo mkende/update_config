@@ -4,6 +4,13 @@ Revision history for Perl distribution App-UpdateConfig
  - Read the directives of a .update_config file in the directories of
    fragments, which apply to all the fragments of these directories.
  - Always write the FILENAME directive first in the exported fragments.
+ - Add a BASE directive to set the base directory of the targets, instead of
+   the home directory, and a MIRROR directive to use the structure of the
+   configuration directory for the targets.
+ - Accept FILENAME and DIR paths starting with "~" for the home directory.
+ - Replace a "dot_" prefix in the name of a fragment by a dot in its default
+   target (e.g. "dot_bashrc" targets ".bashrc"). Fragments with such a name
+   and no FILENAME directive will be written to a new target.
 
 1.02 - 2026-10-27
  - Use cpanm when available to install the missing modules.

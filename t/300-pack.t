@@ -128,4 +128,23 @@ sub pack_fragments {
     '--export: inherited target replaced');
 }
 
+{
+  my ($packed, $t) = pack_fragments(
+    'cfg/.update_config' => "BASE .config\nMIRROR\n",
+    'cfg/app [a]/dot_rc' => "BASE sub\nrc\n",
+    'cfg/app [a]/own' => "DIR other\nFILENAME renamed\nown\n");
+  my $export_dir = catfile($t->root, 'export');
+  make_path($export_dir);
+  my $r = $t->run({script => $packed, cwd => $export_dir}, '--export');
+  is($r->{exit}, 0, '--export with BASE and MIRROR: success');
+  is(
+    UpdateConfigTest::read_file(catfile($export_dir, 'cfg_app [a]_dot_rc')),
+    "FILENAME .config/sub/app/.rc\nGUARD SUFFIX a\nrc\n",
+    '--export: BASE and MIRROR resolved');
+  is(
+    UpdateConfigTest::read_file(catfile($export_dir, 'cfg_app [a]_own')),
+    "FILENAME .config/other/renamed\nGUARD SUFFIX a\nown\n",
+    '--export: BASE, DIR and FILENAME resolved');
+}
+
 done_testing;
