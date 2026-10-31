@@ -14,7 +14,36 @@ on:
       - 'exp/**'
 
 jobs:
+  # A pull request from a branch of this repository is already tested by the
+  # push event of that branch. So, the pull_request event is skipped when it
+  # would test the exact same content, that is when the branch is up to date
+  # with the base branch of the pull request (their merge is then the branch
+  # itself). Otherwise, the pull_request event tests the merged content.
+  dedupe:
+    runs-on: ubuntu-latest
+    name: Check for duplicate runs
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+    - name: Compare the branch with its base
+      id: check
+      if: >-
+        github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && !startsWith(github.head_ref, 'exp-')
+        && !startsWith(github.head_ref, 'exp/')
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        behind=$(gh api "repos/${{ github.repository }}/compare/${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" --jq .behind_by)
+        echo "The branch is ${behind} commit(s) behind its base."
+        if [ "${behind}" = 0 ]; then
+          echo "skip=true" >> "${GITHUB_OUTPUT}"
+        fi
+
   test:
+    needs: dedupe
+    if: ${{ needs.dedupe.outputs.skip != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -46,6 +75,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # This action restores the modules installed in the `local` directory by a
+    # previous run (from a cache keyed on the Perl version and on the cpanfile),
+    # adds that directory to PERL5LIB and PATH and saves it at the end of the
+    # job.
     - name: Set up perl
       uses: shogo82148/actions-setup-perl@v1
       with:
@@ -62,21 +95,25 @@ jobs:
         sudo apt-get install aspell
 
     - name: Install Modules
+      id: install_modules
       if:  ${{ matrix.os != 'macos' }}
       # install the dependencies in 3 steps to limit the risk of dependency loops.
+      # The build logs are printed only if the installation fails (see below).
+      # The modules are installed in the cached `local` directory (see above).
       run: |
         cpanm -V
-        cpanm -v --installdeps --notest --with-configure --with-all-features .
-        cpanm -v --installdeps --notest --with-recommends --with-all-features .
-        cpanm -v --installdeps --notest --with-suggests --with-all-features .
+        cpanm -L local --installdeps --notest --with-configure --with-all-features .
+        cpanm -L local --installdeps --notest --with-recommends --with-all-features .
+        cpanm -L local --installdeps --notest --with-suggests --with-all-features .
 
     # MacOS runners are very costly, so let’s install the minimum amount of
     # dependency.
     - name: Install Modules on MacOS
+      id: install_modules_macos
       if:  ${{ matrix.os == 'macos' }}
       run: |
         cpanm -V
-        cpanm -v --installdeps --notest --with-configure --without-recommends --without-suggests .
+        cpanm -L local --installdeps --notest --with-configure --without-recommends --without-suggests .
 
     - name: Run tests on Linux
       if:  ${{ matrix.os == 'ubuntu' }}
@@ -118,20 +155,22 @@ jobs:
         gmake
         gmake test
 
+    # The build logs of cpanm are only useful when the installation of the
+    # modules failed (otherwise, they would hide the output of the tests).
     - name: Show Errors on Linux
-      if:  ${{ failure() && matrix.os == 'ubuntu' }}
+      if:  ${{ failure() && steps.install_modules.outcome == 'failure' && matrix.os == 'ubuntu' }}
       run: |
          cat /home/runner/.cpanm/work/*/build.log
 
     - name: Show Errors on Windows
-      if:  ${{ failure() && matrix.os == 'windows' }}
+      if:  ${{ failure() && steps.install_modules.outcome == 'failure' && matrix.os == 'windows' }}
       run: |
          ls -l C:/Users/
          ls -l C:/Users/RUNNER~1/
          cat C:/Users/runneradmin/.cpanm/work/*/build.log
 
     - name: Show Errors on MacOS
-      if:  ${{ failure() && matrix.os == 'macos' }}
+      if:  ${{ failure() && steps.install_modules_macos.outcome == 'failure' && matrix.os == 'macos' }}
       run: |
          cat  /Users/runner/.cpanm/work/*/build.log
 
