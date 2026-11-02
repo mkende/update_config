@@ -11,6 +11,7 @@ host or on remote hosts.
 - **Merged files:** for TOML, JSON, YAML and INI files that are rewritten by
   their program, the data of the fragment is merged into the existing data of
   the file instead.
+- **Symbolic links:** a fragment can make its target a symbolic link.
 - **Directives:** fragments can set the permissions of their target, require
   some conditions to be applied, run a command after an update, or be applied
   as root through `sudo`.

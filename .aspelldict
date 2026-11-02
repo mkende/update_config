@@ -1,4 +1,4 @@
-personal_ws-1.1 en 73 
+personal_ws-1.1 en 79 
 Alacritty
 CONFIG
 CreateNewWindow
@@ -10,10 +10,12 @@ IPv
 JSON
 MetaCPAN
 Mlocal
+PID
 ProhibitBacktickOperators
 ProhibitStringyEval
 STDERR
 STDOUT
+SYMLINK
 TODO
 TOML
 UpdateConfig
@@ -34,6 +36,7 @@ crontab
 ctx
 cwd
 deco
+dest
 dev
 dir
 dirname
@@ -46,6 +49,7 @@ ini
 iptables
 json
 linux
+ln
 macos
 notest
 perl
@@ -59,8 +63,10 @@ stdin
 stdout
 subdirectories
 sudo
+symlink
 sysctl
 tempdir
+tmp
 tmux
 toml
 ui

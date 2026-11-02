@@ -279,6 +279,38 @@ sub write_content {
   return;
 }
 
+# Returns a one-line description of what is at the given path, comparable to
+# the description of the symbolic link that a SYMLINK fragment creates there
+# (see get_contents): `-> destination` for a symbolic link, an empty string if
+# nothing exists there, or the type of the file in parentheses otherwise.
+sub describe_symlink_target {
+  my ($path) = @_;
+  if (-l $path) {
+    my $dest = readlink($path) // die "Cannot read the symbolic link '${path}': $!.\n";
+    return "-> ${dest}\n";
+  }
+  return '' if not -e $path;
+  return -d _ ? "(directory)\n" : "(file)\n";
+}
+
+# Creates a symbolic link at the given path, pointing to the given destination,
+# replacing atomically what is at that path, unless it is a directory.
+sub write_symlink {
+  my ($path, $dest) = @_;
+  my $dir = dirname($path);
+  if (not -e $dir) {
+    make_path($dir) or die "Cannot create directory '$dir': $!.\n";
+  }
+  my $tmp = "${path}.update_config-${PID}";
+  symlink($dest, $tmp) or die "Cannot create the symbolic link '${tmp}': $!.\n";
+  if (not rename($tmp, $path)) {
+    my $error = $!;
+    unlink $tmp;
+    die "Cannot replace '${path}' with a symbolic link: ${error}.\n";
+  }
+  return;
+}
+
 sub need_perm_update {
   my ($file, $mode, $conf) = @_;
   return 0 if not exists $conf->{perm};
@@ -314,6 +346,19 @@ my %DIRECTIVES = (
   'POST UPDATE' => {key => 'post_update'},
   'REM' => {},
   'REQUIRE' => {key => 'require', multiple => 1},
+  'SYMLINK' => {key => 'symlink'},
+);
+
+# The directives that can't be used with SYMLINK in a fragment (they are
+# ignored when they are inherited from its directories).
+my @NON_SYMLINK_DIRECTIVES = (
+  'COMMENTS CHAR',
+  'ENTIRE FILE',
+  'IS PREFIX',
+  'MAKE EXECUTABLE',
+  'MERGE',
+  'MERGE ARRAYS',
+  'PERM'
 );
 # Longest names first, so that a directive is not matched by its prefix (e.g.
 # MERGE ARRAYS by MERGE).
@@ -371,6 +416,7 @@ sub parse_dir_conf {
     parse_directive($line, \%conf) or die "Invalid directive in '${name}': '${line}'.\n";
   }
   check_dir_and_mirror(\%conf, $name);
+  die "SYMLINK cannot be used in '${name}'.\n" if exists $conf{symlink};
   return \%conf;
 }
 
@@ -432,6 +478,7 @@ sub parse_file_conf {
   check_dir_and_mirror($own, $name // 'the fragment');
   my %conf = defined $name ? %{get_inherited_conf($name, $dir_confs // {})} : (depth => {});
   add_conf(\%conf, $own, defined $name ? get_name_depth($name) : 0);
+  validate_symlink_conf(\%conf, $content) if exists $conf{symlink};
   # MERGE ARRAYS can be set in a directory for its fragments that use MERGE,
   # and COMMENTS CHAR for its fragments that don't (unless it is set as deep
   # as MERGE).
@@ -456,6 +503,24 @@ sub parse_file_conf {
   $conf{content} = $content;
   validate_merge_conf(\%conf) if exists $conf{merge} or exists $conf{merge_arrays};
   return %conf;
+}
+
+# Dies if the given fragment configuration (with the SYMLINK directive, see
+# parse_file_conf) and content are invalid for a symbolic link. Removes from the
+# configuration the directives that don't apply to symbolic links and that are
+# inherited from the directories of the fragment, and expands a leading `~` in
+# the destination of the link.
+sub validate_symlink_conf {
+  my ($conf, $content) = @_;
+  die "A SYMLINK fragment cannot have any content.\n" if $content =~ m/\S/;
+  for my $d (@NON_SYMLINK_DIRECTIVES) {
+    my $key = $DIRECTIVES{$d}{key};
+    next if not exists $conf->{$key};
+    die "SYMLINK cannot be used with ${d}.\n" if $conf->{depth}{$key} >= $conf->{depth}{symlink};
+    delete $conf->{$key};
+  }
+  $conf->{symlink} =~ s{^~(?=/|$)}{get_home_dir()}e;
+  return;
 }
 
 # The formats supported by the MERGE directive. Each entry gives the module
@@ -907,13 +972,14 @@ sub check_requirements {
 # command if any.
 sub update_target {
   my ($mode, $out_path, $before, $new_content, $after, $conf) = @_;
-  my $content;
-  if ($conf->{entire_file} or $conf->{merge}) {
-    $content = $new_content;
+  if (exists $conf->{symlink}) {
+    write_symlink($out_path, $conf->{symlink});
+  } elsif ($conf->{entire_file} or $conf->{merge}) {
+    write_content($mode, $out_path, $new_content, $conf);
   } else {
-    $content = $before.$conf->{start_marker}.$new_content.$conf->{end_marker}.$after;
+    my $content = $before.$conf->{start_marker}.$new_content.$conf->{end_marker}.$after;
+    write_content($mode, $out_path, $content, $conf);
   }
-  write_content($mode, $out_path, $content, $conf);
   if ($conf->{post_update}) {
     my $cmd = $conf->{post_update} =~ s/\$@/$out_path/gr;
     system $cmd;
@@ -927,6 +993,8 @@ sub update_target {
 sub get_contents {
   my ($fragment) = @_;
   my ($mode, $in_path, $conf) = @{$fragment}{qw(mode in_path conf)};
+  return ('', describe_symlink_target($in_path), "-> $conf->{symlink}\n", '')
+      if exists $conf->{symlink};
   if (not $conf->{merge}) {
     my ($before, $old_content, $after) = read_content($mode, $in_path, $conf);
     return ($before, $old_content, $conf->{content}, $after);
@@ -1024,13 +1092,15 @@ sub prepare_fragment {
   return if not check_requirements(\%conf, $display_name);
   my %fragment = (name => $name, conf => \%conf, display_name => $display_name);
   @fragment{qw(mode in_path out_path)} = parse_file_name($target);
+  die "SYMLINK cannot be used with commands in '${name}'.\n"
+      if exists $conf{symlink} and $fragment{mode} eq 'pipe';
   return \%fragment;
 }
 
 # Dies if some of the given fragments (from prepare_fragment) can't be applied
 # to the same target: when they have the same guard suffix (unless they both
-# use MERGE), when one of them uses ENTIRE FILE, or when only one of them uses
-# MERGE.
+# use MERGE), when one of them uses ENTIRE FILE or SYMLINK, or when only one of
+# them uses MERGE.
 sub check_conflicts {
   my (@fragments) = @_;
   my %by_target;
@@ -1041,6 +1111,8 @@ sub check_conflicts {
       next
           if !$c->{entire_file}
           && !$o->{entire_file}
+          && !exists $c->{symlink}
+          && !exists $o->{symlink}
           && !$c->{merge} == !$o->{merge}
           && ($c->{merge} || ($c->{guard_suffix} // "\0") ne ($o->{guard_suffix} // "\0"));
       die "Fragments '$other->{name}' and '$f->{name}' can't both be applied to "
@@ -1066,14 +1138,27 @@ sub get_target_modifications {
 }
 
 # Checks whether the target of the given fragment (from prepare_fragment), whose
-# current and new contents are given, can be overwritten (see
-# get_target_modifications). Returns undef, after printing the modifications,
-# if the fragment must be skipped. Otherwise, returns the text to add to the
-# message reporting the update: ' (forced)' if the target was modified but
+# current and new contents are given, can be overwritten: an ENTIRE FILE target
+# that was not modified (see get_target_modifications), or a SYMLINK target
+# that is a symbolic link or does not exist. Returns undef, after printing the
+# reason, if the fragment must be skipped (a SYMLINK target that is a directory
+# is always skipped). Otherwise, returns the text to add to the message
+# reporting the update: ' (forced)' if the target can't be overwritten but
 # --force is used, or an empty string.
 sub check_target_modifications {
   my ($fragment, $current, $new) = @_;
   return '' if $current eq $new;
+  if (exists $fragment->{conf}{symlink}) {
+    return '' if $current eq '' or $current =~ m/^->/;
+    if ($current eq "(directory)\n") {
+      print STDERR "Skipping $fragment->{display_name}, which is a directory\n";
+      return;
+    }
+    return ' (forced)' if $flags{force};
+    print STDERR "Skipping $fragment->{display_name}, which is not a symbolic link "
+        ."(use --force to overwrite it)\n";
+    return;
+  }
   my $modifications = get_target_modifications($fragment, $current) // return '';
   return ' (forced)' if $flags{force};
   print STDERR "Skipping $fragment->{display_name}, which was modified since its last update "
@@ -1207,8 +1292,10 @@ abbreviated down to a single character.
   --no-root  Do not attempt to install the 'NEED ROOT' fragments.
 
   --force  Overwrite the targets of the 'ENTIRE FILE' fragments even if they
-           were modified since they were last written by the program. These
-           targets are then reported as "Updated: target (forced)".
+           were modified since they were last written by the program, and
+           the files that are not symbolic links at the targets of the
+           'SYMLINK' fragments. These targets are then reported as
+           "Updated: target (forced)".
 
   --export Export in the current directory all the files that are embedded
            in the script, with their target and the directives that they
@@ -1374,6 +1461,20 @@ With C<MERGE>, sets how the arrays without an explicit mode are merged (see
 L</Merged files>): C<union> or C<replace> for all of them, or C<auto> (the
 default) to use C<replace> for the arrays that contain only scalars and
 C<union> for the others.
+
+=item C<SYMLINK> I<destination>
+
+Makes the target a symbolic link to the given destination, instead of writing
+the content of the fragment, which must be empty. A destination starting with
+C<~> is relative to your home directory, other relative destinations are
+relative to the directory of the link (as with C<ln -s>). An existing symbolic
+link at the target is replaced. Other files are not overwritten (the fragment
+is skipped, the program continues with the other ones), unless the C<--force>
+option is used. A directory is never replaced. The target can't be made of
+commands, and this directive can't be used in a F<.update_config> file, nor
+with C<COMMENTS CHAR>, C<ENTIRE FILE>, C<IS PREFIX>, C<MAKE EXECUTABLE>,
+C<MERGE>, C<MERGE ARRAYS> or C<PERM> (these directives are ignored when they
+are set in a parent directory).
 
 =item C<PERM> I<mode>
 

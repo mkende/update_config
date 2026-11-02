@@ -1,5 +1,8 @@
 Revision history for Perl distribution App-UpdateConfig
 
+1.05 - ????-??-??
+ - Add a SYMLINK directive to make the target of a fragment a symbolic link.
+
 1.04 - 2026-11-02
  - MIRROR now includes the directory where it is set in the mirrored path, and
    a MIRROR CONTENTS directive mirrors only the directories below it.
