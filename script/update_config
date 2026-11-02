@@ -22,7 +22,7 @@ use Scalar::Util 'refaddr';
 
 # This must be kept in sync with the version in lib/App/UpdateConfig.pm (the
 # script cannot use that module as it must work as a standalone file).
-our $VERSION = '1.03';
+our $VERSION = '1.04';
 
 # With --help, prints the entire documentation, through perldoc when available.
 sub print_usage {

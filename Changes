@@ -1,6 +1,6 @@
 Revision history for Perl distribution App-UpdateConfig
 
-1.04 - ????-??-??
+1.04 - 2026-11-02
  - MIRROR now includes the directory where it is set in the mirrored path, and
    a MIRROR CONTENTS directive mirrors only the directories below it.
  - Always convert the guard suffixes to upper case.
