@@ -1,6 +1,6 @@
 Revision history for Perl distribution App-UpdateConfig
 
-1.03 - ????-??-??
+1.03 - 2026-11-02
  - Read the directives of a .update_config file in the directories of
    fragments, which apply to all the fragments of these directories.
  - Always write the FILENAME directive first in the exported fragments.
