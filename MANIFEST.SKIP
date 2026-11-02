@@ -5,7 +5,7 @@
 ^\.aspelldict$
 ^\.claude/
 ^\.devcontainer/
-^\.git/
+^\.git(/|$)
 ^\.github/
 ^\.gitignore$
 ^\.gitmodules$
