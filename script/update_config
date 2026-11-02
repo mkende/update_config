@@ -1051,21 +1051,34 @@ sub check_conflicts {
   return;
 }
 
-# Returns true, after printing the modifications, if the target of the given
-# ENTIRE FILE fragment (from prepare_fragment), whose current content is given,
-# was modified since the fragment was last applied (according to its saved
-# state). Returns false for the other fragments.
-sub is_target_modified {
+# Returns the modifications made to the target of the given ENTIRE FILE fragment
+# (from prepare_fragment), whose current content is given, since the fragment
+# was last applied (according to its saved state), as a diff. Returns undef if
+# the target was not modified, or for the other fragments.
+sub get_target_modifications {
   my ($fragment, $current) = @_;
-  my ($conf, $mode, $in_path, $display_name) = @{$fragment}{qw(conf mode in_path display_name)};
-  return 0 if not $conf->{entire_file};
-  return 0 if $mode eq 'file' and not -e $in_path;
-  my $saved = read_entire_file_state($fragment) // return 0;
-  return 0 if $saved eq $current;
-  my $diff = diff(\$saved, \$current, {CONTEXT => 0});
-  print STDERR "Skipping ${display_name}, which was modified since its last update (use --force "
-      ."to overwrite it):\n${diff}";
-  return 1;
+  my ($conf, $mode, $in_path) = @{$fragment}{qw(conf mode in_path)};
+  return if not $conf->{entire_file};
+  return if $mode eq 'file' and not -e $in_path;
+  my $saved = read_entire_file_state($fragment) // return;
+  return if $saved eq $current;
+  return diff(\$saved, \$current, {CONTEXT => 0});
+}
+
+# Checks whether the target of the given fragment (from prepare_fragment), whose
+# current and new contents are given, can be overwritten (see
+# get_target_modifications). Returns undef, after printing the modifications,
+# if the fragment must be skipped. Otherwise, returns the text to add to the
+# message reporting the update: ' (forced)' if the target was modified but
+# --force is used, or an empty string.
+sub check_target_modifications {
+  my ($fragment, $current, $new) = @_;
+  return '' if $current eq $new;
+  my $modifications = get_target_modifications($fragment, $current) // return '';
+  return ' (forced)' if $flags{force};
+  print STDERR "Skipping $fragment->{display_name}, which was modified since its last update "
+      ."(use --force to overwrite it):\n${modifications}";
+  return;
 }
 
 # Applies the given fragment (from prepare_fragment), depending on the command
@@ -1088,15 +1101,12 @@ sub apply_fragment {
   }
   return 1 if $conf->{need_root} and not $flags{root};
   return 0 if $flags{root} and not $conf->{need_root};
-  return 0
-      if $old_content ne $new_content
-      and not $flags{force}
-      and is_target_modified($fragment, $old_content);
+  my $forced = check_target_modifications($fragment, $old_content, $new_content) // return 0;
   if ($can_write) {
     update_target($mode, $out_path, $before, $new_content, $after, $conf);
     save_state($fragment) if $conf->{merge} or $conf->{entire_file};
   }
-  print "Updated: ${display_name}\n" unless $flags{silent};
+  print "Updated: ${display_name}${forced}\n" unless $flags{silent};
   return 0;
 }
 
@@ -1197,7 +1207,8 @@ abbreviated down to a single character.
   --no-root  Do not attempt to install the 'NEED ROOT' fragments.
 
   --force  Overwrite the targets of the 'ENTIRE FILE' fragments even if they
-           were modified since they were last written by the program.
+           were modified since they were last written by the program. These
+           targets are then reported as "Updated: target (forced)".
 
   --export Export in the current directory all the files that are embedded
            in the script, with their target and the directives that they
@@ -1340,7 +1351,8 @@ guard lines. The last applied version of the fragment is saved (see
 L</Merged files>) and, if the target was modified since then, it is not
 overwritten: the program prints the modifications that would be lost, skips
 the fragment and continues with the other ones. The C<--force> option
-overwrites the target anyway. A target that does not exist is always written.
+overwrites the target anyway, and reports it as C<Updated: target (forced)>. A
+target that does not exist is always written.
 
 =item C<MAKE EXECUTABLE>
 

@@ -4,6 +4,8 @@ Revision history for Perl distribution App-UpdateConfig
  - MIRROR now includes the directory where it is set in the mirrored path, and
    a MIRROR CONTENTS directive mirrors only the directories below it.
  - Always convert the guard suffixes to upper case.
+ - With --force, report the overwritten targets of the ENTIRE FILE fragments
+   that were modified since their last update as "Updated: target (forced)".
 
 1.03 - 2026-11-02
  - Read the directives of a .update_config file in the directories of
