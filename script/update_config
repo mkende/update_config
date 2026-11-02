@@ -22,7 +22,7 @@ use Scalar::Util 'refaddr';
 
 # This must be kept in sync with the version in lib/App/UpdateConfig.pm (the
 # script cannot use that module as it must work as a standalone file).
-our $VERSION = '1.03';
+our $VERSION = '1.04';
 
 # With --help, prints the entire documentation, through perldoc when available.
 sub print_usage {
@@ -196,8 +196,8 @@ sub get_name_depth {
 # parse_file_conf): its GUARD SUFFIX directive, if any, followed by the
 # suffixes between brackets at the end of the names of the directories below
 # the one where that directive is set and of the fragment itself (so all of
-# them without the directive), joined with '-'. Returns undef if there are no
-# such suffixes.
+# them without the directive), joined with '-' and in upper case. Returns undef
+# if there are no such suffixes.
 sub get_guard_suffix {
   my ($name, $conf) = @_;
   my @parts = split m{/}, $name;
@@ -205,7 +205,7 @@ sub get_guard_suffix {
   my @suffixes =
       grep { defined && $_ ne '' } map { m/\s*\[(.*)\]\s*$/ ? $1 : undef } @parts[$from .. $#parts];
   unshift @suffixes, $conf->{guard_suffix} if exists $conf->{guard_suffix};
-  return @suffixes ? join('-', @suffixes) : undef;
+  return @suffixes ? uc join('-', @suffixes) : undef;
 }
 
 # parse_file_name($file_name)
@@ -289,7 +289,8 @@ sub need_perm_update {
 
 # The directives that can appear at the beginning of a fragment. Each entry
 # gives the key of the fragment configuration where the directive is stored
-# (if any) and how: `flag` directives take no value and set their key to 1,
+# (if any) and how: `flag` directives take no value and set their key to their
+# `value` (default to 1),
 # `multiple` directives can be repeated and store their values in a list, the
 # others store their value directly (an empty string for `optional` directives
 # without a value).
@@ -304,7 +305,9 @@ my %DIRECTIVES = (
   'MAKE EXECUTABLE' => {key => 'make_executable', flag => 1},
   'MERGE' => {key => 'merge', optional => 1},
   'MERGE ARRAYS' => {key => 'merge_arrays'},
-  'MIRROR' => {key => 'mirror', flag => 1},
+  # Both MIRROR variants set the same key, so that the deepest one wins.
+  'MIRROR' => {key => 'mirror', flag => 1, value => 'dir'},
+  'MIRROR CONTENTS' => {key => 'mirror', flag => 1, value => 'contents'},
   'NEED ROOT' => {key => 'need_root', flag => 1},
   # TODO: validate that the mode is a correct octal value.
   'PERM' => {key => 'perm'},
@@ -330,7 +333,7 @@ sub parse_directive {
   if (not defined $key) {
     # Nothing to do, this is a comment.
   } elsif ($directive->{flag}) {
-    $conf->{$key} = 1;
+    $conf->{$key} = $directive->{value} // 1;
   } elsif ($directive->{multiple}) {
     push @{$conf->{$key}}, $value;
   } else {
@@ -443,6 +446,8 @@ sub parse_file_conf {
   if (defined $name) {
     my $suffix = get_guard_suffix($name, \%conf);
     $conf{guard_suffix} = $suffix if defined $suffix;
+  } elsif (exists $conf{guard_suffix}) {
+    $conf{guard_suffix} = uc $conf{guard_suffix};
   }
   my $comments_decorator = ($conf{comments_char} // DEFAULT_COMMENTS_CHAR) x COMMENTS_CHAR_COUNT;
   my $guard = DEFAULT_GUARD_STRING.(exists $conf{guard_suffix} ? ':'.$conf{guard_suffix} : '');
@@ -960,13 +965,20 @@ sub get_target_name {
 }
 
 # Returns the directory of the target of the fragment with the given name and
-# the MIRROR directive: the path of its directory relative to the one where
-# MIRROR is set (see get_target_name).
+# the MIRROR directive: the path of its directory relative to the parent of the
+# directory where MIRROR is set (the one containing the DIR_CONF_NAME file, or
+# the fragment itself), or relative to that directory with MIRROR CONTENTS. The
+# root of the configuration directory is never part of that path (see
+# get_target_name).
 sub get_mirrored_dir {
   my ($name, $conf) = @_;
   my @dirs = split m{/}, $name;
   pop @dirs;
-  return join '/', map { get_target_name($name, $_) } @dirs[$conf->{depth}{mirror} .. $#dirs];
+  # The own directives of a fragment are one level deeper than its directory.
+  my $from = $conf->{depth}{mirror};
+  $from = @dirs if $from > @dirs;
+  $from-- if $conf->{mirror} eq 'dir' and $from > 0;
+  return join '/', map { get_target_name($name, $_) } @dirs[$from .. $#dirs];
 }
 
 # Returns the target of the given fragment, from its BASE, DIR (or MIRROR) and
@@ -1039,21 +1051,34 @@ sub check_conflicts {
   return;
 }
 
-# Returns true, after printing the modifications, if the target of the given
-# ENTIRE FILE fragment (from prepare_fragment), whose current content is given,
-# was modified since the fragment was last applied (according to its saved
-# state). Returns false for the other fragments.
-sub is_target_modified {
+# Returns the modifications made to the target of the given ENTIRE FILE fragment
+# (from prepare_fragment), whose current content is given, since the fragment
+# was last applied (according to its saved state), as a diff. Returns undef if
+# the target was not modified, or for the other fragments.
+sub get_target_modifications {
   my ($fragment, $current) = @_;
-  my ($conf, $mode, $in_path, $display_name) = @{$fragment}{qw(conf mode in_path display_name)};
-  return 0 if not $conf->{entire_file};
-  return 0 if $mode eq 'file' and not -e $in_path;
-  my $saved = read_entire_file_state($fragment) // return 0;
-  return 0 if $saved eq $current;
-  my $diff = diff(\$saved, \$current, {CONTEXT => 0});
-  print STDERR "Skipping ${display_name}, which was modified since its last update (use --force "
-      ."to overwrite it):\n${diff}";
-  return 1;
+  my ($conf, $mode, $in_path) = @{$fragment}{qw(conf mode in_path)};
+  return if not $conf->{entire_file};
+  return if $mode eq 'file' and not -e $in_path;
+  my $saved = read_entire_file_state($fragment) // return;
+  return if $saved eq $current;
+  return diff(\$saved, \$current, {CONTEXT => 0});
+}
+
+# Checks whether the target of the given fragment (from prepare_fragment), whose
+# current and new contents are given, can be overwritten (see
+# get_target_modifications). Returns undef, after printing the modifications,
+# if the fragment must be skipped. Otherwise, returns the text to add to the
+# message reporting the update: ' (forced)' if the target was modified but
+# --force is used, or an empty string.
+sub check_target_modifications {
+  my ($fragment, $current, $new) = @_;
+  return '' if $current eq $new;
+  my $modifications = get_target_modifications($fragment, $current) // return '';
+  return ' (forced)' if $flags{force};
+  print STDERR "Skipping $fragment->{display_name}, which was modified since its last update "
+      ."(use --force to overwrite it):\n${modifications}";
+  return;
 }
 
 # Applies the given fragment (from prepare_fragment), depending on the command
@@ -1076,15 +1101,12 @@ sub apply_fragment {
   }
   return 1 if $conf->{need_root} and not $flags{root};
   return 0 if $flags{root} and not $conf->{need_root};
-  return 0
-      if $old_content ne $new_content
-      and not $flags{force}
-      and is_target_modified($fragment, $old_content);
+  my $forced = check_target_modifications($fragment, $old_content, $new_content) // return 0;
   if ($can_write) {
     update_target($mode, $out_path, $before, $new_content, $after, $conf);
     save_state($fragment) if $conf->{merge} or $conf->{entire_file};
   }
-  print "Updated: ${display_name}\n" unless $flags{silent};
+  print "Updated: ${display_name}${forced}\n" unless $flags{silent};
   return 0;
 }
 
@@ -1185,7 +1207,8 @@ abbreviated down to a single character.
   --no-root  Do not attempt to install the 'NEED ROOT' fragments.
 
   --force  Overwrite the targets of the 'ENTIRE FILE' fragments even if they
-           were modified since they were last written by the program.
+           were modified since they were last written by the program. These
+           targets are then reported as "Updated: target (forced)".
 
   --export Export in the current directory all the files that are embedded
            in the script, with their target and the directives that they
@@ -1216,8 +1239,8 @@ You can organize the fragments in sub-directories, but these are not part of
 the target path: only the base name of a fragment is used as its default
 target (unless the C<MIRROR> directive is used). A suffix between brackets in
 that name is not part of the target but it is the default guard suffix of the fragment (e.g. F<bashrc [linux]> and
-F<bashrc [macos]> both target F<.bashrc>, with the C<linux> and C<macos> guard
-suffixes). Several fragments can be applied to the same file only if they have
+F<bashrc [macos]> both target F<.bashrc>, with the C<LINUX> and C<MACOS> guard
+suffixes, which are always in upper case). Several fragments can be applied to the same file only if they have
 different guard suffixes (see the C<GUARD SUFFIX> directive) or if they all
 use C<MERGE>, otherwise the program fails without applying any fragment.
 
@@ -1226,7 +1249,7 @@ Similarly, a suffix between brackets at the end of the name of a directory
 fragments that it contains, including in its sub-directories. When several of
 these suffixes apply to a fragment (from its directories or its own name),
 they are joined with C<->, from the outermost one (e.g. the default guard
-suffix of F<[linux]/shell [work]/bashrc [prompt]> is C<linux-work-prompt>). Hidden
+suffix of F<[linux]/shell [work]/bashrc [prompt]> is C<LINUX-WORK-PROMPT>). Hidden
 directories are ignored too and fragments are processed in alphabetical order
 of their base name, ignoring case.
 
@@ -1281,14 +1304,25 @@ directory.
 
 Uses the structure of the configuration directory for the target, which is
 mostly useful in a F<.update_config> file (see L</Directory directives>): the
-directory of the target is the path of the directory of the fragment, relative
-to the directory where C<MIRROR> is set (and to the base directory, see
-C<BASE>). As for the name of the fragment, the suffixes between brackets are
-removed from the names of the mirrored directories (a directory whose name is
-only such a suffix can't be mirrored) and a C<dot_> prefix is replaced by a
-dot (e.g. F<dot_config/app [work]/dot_rc> targets F<.config/app/.rc>). A C<DIR>
+directory of the target is the path of the directory of the fragment, starting
+with the directory where C<MIRROR> is set (the one containing the
+F<.update_config> file, or the fragment itself), relative to the base directory
+(see C<BASE>). For example, with C<MIRROR> in F<dot_config/.update_config>, the
+fragment F<dot_config/fish/config.fish> targets F<~/.config/fish/config.fish>.
+The root of the configuration directory is never part of the mirrored path. As
+for the name of the fragment, the suffixes between brackets are removed from
+the names of the mirrored directories (a directory whose name is only such a
+suffix can't be mirrored) and a C<dot_> prefix is replaced by a dot (e.g.
+F<dot_config/app [work]/dot_rc> targets F<.config/app/.rc>). A C<DIR>
 directive set deeper than C<MIRROR> replaces the mirrored path (and the
 reverse), and C<FILENAME> replaces the name of the fragment.
+
+=item C<MIRROR CONTENTS>
+
+Like C<MIRROR>, but the directory where the directive is set is not part of the
+mirrored path, only the directories below it are (e.g. with C<MIRROR CONTENTS>
+in F<config/.update_config>, the fragment F<config/fish/config.fish> targets
+F<~/fish/config.fish>). The deepest of C<MIRROR> and C<MIRROR CONTENTS> wins.
 
 =item C<COMMENTS CHAR> I<char>
 
@@ -1298,10 +1332,12 @@ the guard lines (it is repeated three times). The default is C<#>.
 =item C<GUARD SUFFIX> I<suffix>
 
 Adds a suffix to the guard lines, which then look like
-C<###AUTO-CONFIG:suffix START###>. You need this if several fragments target
+C<###AUTO-CONFIG:SUFFIX START###>. You need this if several fragments target
 the same file. By default, the suffixes between brackets at the end of the name
-of the fragment and of its directories are used, if any (see above). With
-C<MERGE>, there are no guard lines and the suffix is ignored.
+of the fragment and of its directories are used, if any (see above). The suffix
+is always converted to upper case, whether it comes from this directive or from
+the names of the files. With C<MERGE>, there are no guard lines and the suffix
+is ignored.
 
 =item C<IS PREFIX>
 
@@ -1315,7 +1351,8 @@ guard lines. The last applied version of the fragment is saved (see
 L</Merged files>) and, if the target was modified since then, it is not
 overwritten: the program prints the modifications that would be lost, skips
 the fragment and continues with the other ones. The C<--force> option
-overwrites the target anyway. A target that does not exist is always written.
+overwrites the target anyway, and reports it as C<Updated: target (forced)>. A
+target that does not exist is always written.
 
 =item C<MAKE EXECUTABLE>
 
@@ -1398,7 +1435,7 @@ between brackets of the names of its directory and of the directories above
 it, but the suffixes of the directories below it and of the fragment
 itself are still added after it (e.g. with a F<.update_config> file containing
 C<GUARD SUFFIX work> in F<dir [d]>, the guard suffix of F<dir [d]/sub [s]/file>
-is C<work-s>). A C<GUARD SUFFIX> directive in a fragment replaces all of these
+is C<WORK-S>). A C<GUARD SUFFIX> directive in a fragment replaces all of these
 suffixes.
 
 =item *
@@ -1416,8 +1453,8 @@ The C<BASE> directives are all applied, each relative to the previous one.
 =item *
 
 An absolute C<FILENAME> (or a pair of commands, or a path starting with C<~/>)
-ignores the C<BASE>, C<DIR> and C<MIRROR> directives set in a parent
-directory.
+ignores the C<BASE>, C<DIR>, C<MIRROR> and C<MIRROR CONTENTS> directives set
+in a parent directory.
 
 =back
 
@@ -1425,15 +1462,21 @@ A C<FILENAME> directive in a F<.update_config> file sends all the fragments of
 the directory to the same target, which requires them to have different guard
 suffixes (e.g. from their names, like F<path [path]> and F<editor [editor]>).
 
-For example, with a F<config/.update_config> file containing:
+For example, with a F<dot_config/.update_config> file containing:
 
-  BASE .config
   MIRROR
 
-the fragment F<config/fish/config.fish> targets F<~/.config/fish/config.fish>,
-F<config/git [work]/config> targets F<~/.config/git/config> (with the C<work>
-guard suffix) and F<config/app/settings.json> containing C<DIR other> targets
-F<~/.config/other/settings.json>.
+the fragment F<dot_config/fish/config.fish> targets
+F<~/.config/fish/config.fish>, F<dot_config/git [work]/config> targets
+F<~/.config/git/config> (with the C<WORK> guard suffix) and
+F<dot_config/app/settings.json> containing C<DIR .config/other> targets
+F<~/.config/other/settings.json>. The same targets are obtained with a
+F<config/.update_config> file containing:
+
+  BASE .config
+  MIRROR CONTENTS
+
+and C<DIR other> in F<config/app/settings.json>.
 
 =head2 Merged files
 

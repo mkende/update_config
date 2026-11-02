@@ -47,10 +47,27 @@ our $VERSION = 0.01;
   $r = $t->run('--test');
   like($r->{stderr}, qr/^Skipping[ ]file/mx, 'modified target: reported with --test');
 
+  $t->add_fragment('other', "other 3\n");
   $r = $t->run('--force');
   is($r->{exit}, 0, '--force: success');
   is($t->read_home_file('file'), "v3\n", '--force: overwritten');
   is($r->{stderr}, '', '--force: no warning');
+  like($r->{stdout}, qr/^Updated:[ ]file[ ][(]forced[)]$/mx, '--force: reported as forced');
+  like($r->{stdout}, qr/^Updated:[ ]other$/mx, '--force: other fragments not forced');
+
+  $t->add_fragment('file', "ENTIRE FILE\nv3 bis\n");
+  $r = $t->run('--force');
+  is($t->read_home_file('file'), "v3 bis\n", '--force on an unmodified target: updated');
+  like($r->{stdout}, qr/^Updated:[ ]file$/mx, '--force on an unmodified target: not forced');
+
+  $t->write_home_file('file', "local change\n");
+  $t->add_fragment('file', "ENTIRE FILE\nv3 ter\n");
+  $r = $t->run('--force', '--test');
+  like($r->{stdout}, qr/^Updated:[ ]file[ ][(]forced[)]$/mx, '--force with --test: reported');
+  is($t->read_home_file('file'), "local change\n", '--force with --test: not overwritten');
+  $r = $t->run('--force', '--silent');
+  is($r->{stdout}, '', '--force with --silent: nothing reported');
+  is($t->read_home_file('file'), "v3 ter\n", '--force with --silent: overwritten');
 
   $t->write_home_file('file', "local change\n");
   $t->add_fragment('file', "ENTIRE FILE\nlocal change\n");
