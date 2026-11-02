@@ -67,7 +67,7 @@ our $VERSION = 0.01;
   is($r->{exit}, 0, 'FILENAME in a directory: success');
   is(
     $t->read_home_file('.profile'),
-    guarded("editor\n", undef, 'editor').guarded("path\n", undef, 'path'),
+    guarded("editor\n", undef, 'EDITOR').guarded("path\n", undef, 'PATH'),
     'FILENAME in a directory: fragments in the same file');
   is($t->read_home_file('.own'), guarded("own\n"), 'FILENAME in a directory: overridden');
 }
@@ -82,14 +82,14 @@ our $VERSION = 0.01;
   $t->run();
   is(
     $t->read_home_file('file'),
-    guarded("file\n", undef, 'g-f'),
+    guarded("file\n", undef, 'G-F'),
     'GUARD SUFFIX: replaces the suffixes of its directory and above');
   is(
     $t->read_home_file('nested'),
-    guarded("nested\n", undef, 'g-s'),
+    guarded("nested\n", undef, 'G-S'),
     'GUARD SUFFIX: suffixes of lower directories added');
-  is($t->read_home_file('own'), guarded("own\n", undef, 'own'), 'GUARD SUFFIX: own one wins');
-  is($t->read_home_file('sibling'), guarded("sibling\n", undef, 'top'), 'GUARD SUFFIX: siblings');
+  is($t->read_home_file('own'), guarded("own\n", undef, 'OWN'), 'GUARD SUFFIX: own one wins');
+  is($t->read_home_file('sibling'), guarded("sibling\n", undef, 'TOP'), 'GUARD SUFFIX: siblings');
 }
 
 {
@@ -128,7 +128,7 @@ our $VERSION = 0.01;
   is(UpdateConfigTest::read_file($abs), guarded("abs\n"), 'absolute FILENAME: DIR ignored');
   is(
     UpdateConfigTest::read_file("${abs}.out"),
-    guarded("abs\n").guarded("cmd\n", undef, 'c'),
+    guarded("abs\n").guarded("cmd\n", undef, 'C'),
     'commands: DIR ignored');
 
 }

@@ -1,5 +1,10 @@
 Revision history for Perl distribution App-UpdateConfig
 
+1.04 - ????-??-??
+ - MIRROR now includes the directory where it is set in the mirrored path, and
+   a MIRROR CONTENTS directive mirrors only the directories below it.
+ - Always convert the guard suffixes to upper case.
+
 1.03 - 2026-11-02
  - Read the directives of a .update_config file in the directories of
    fragments, which apply to all the fragments of these directories.
