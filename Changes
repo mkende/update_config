@@ -1,6 +1,6 @@
 Revision history for Perl distribution App-UpdateConfig
 
-1.05 - ????-??-??
+1.05 - 2026-11-02
  - Add a SYMLINK directive to make the target of a fragment a symbolic link.
 
 1.04 - 2026-11-02
