@@ -7,7 +7,7 @@ host or on remote hosts.
 
 - **Fragments:** each fragment adds a block of content, between guard lines, to
   a target file, leaving the rest of the file untouched. A fragment can also
-  replace the entire file.
+  replace the entire file, and other fragments can then be appended to it.
 - **Merged files:** for TOML, JSON, YAML and INI files that are rewritten by
   their program, the data of the fragment is merged into the existing data of
   the file instead.
