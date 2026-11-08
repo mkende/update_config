@@ -1,6 +1,6 @@
 Revision history for Perl distribution App-UpdateConfig
 
-1.07 - ????-??-??
+1.07 - 2026-11-08
  - Add an APPEND directive to append the content of a fragment to the ENTIRE
    FILE fragment with the same target.
 
