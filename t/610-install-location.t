@@ -4,7 +4,8 @@
 # itself is installed, in a fresh Docker container where the program is run by
 # a non-root user. When the program is installed in the directories of the Perl
 # installation, the modules are installed there too, through sudo. Otherwise,
-# they are installed with local::lib.
+# they are installed with local::lib, and nothing is written outside of its
+# directory. With --no-root, sudo is never used.
 
 use strict;
 use warnings;
@@ -60,16 +61,28 @@ my $t = UpdateConfigTest->new;
 $t->add_fragment('testrc', "FILENAME .testrc\nsome content\n");
 my $config_dir = $t->config_dir;
 
-# Runs the program, installed at the given path, in a fresh container. Returns
-# the output of the container, which also reports where the modules are
-# installed.
+# Runs the program, installed at the given path, in a fresh container, with
+# the given command (`perl` and the path of the program by default), after the
+# optional shell commands in $pre. The program is the given script (the source
+# script by default). Returns the output of the container, which also reports
+# where the modules are installed and the files written outside of the home
+# directory of the user.
 sub run_test {
-  my ($install_path) = @_;
+  my ($install_path, $command, $pre, $program) = @_;
+  $command //= "perl ${install_path}";
+  $pre //= q{};
+  $program //= $script;
   my $container_script = <<"EOS";
 ${setup}
 cp /opt/update_config ${install_path}
 chmod 755 ${install_path}
-su - test -c 'perl ${install_path}' || echo "Script failed"
+${pre}
+touch /tmp/stamp
+su - test -c '${command}' || echo "Script failed"
+echo "--- outside"
+find / -xdev \\( -path /proc -o -path /sys -o -path /tmp -o -path /home/test \\) -prune -o -type f -newer /tmp/stamp -print
+echo "--- man"; ls /home/test/perl5/man/man3
+[ -s /tmp/sudo.log ] && echo "Sudo was invoked"
 echo "--- sudo"; cat /tmp/sudo.log
 for m in ${modules}; do perl -M\$m -e1 2>/dev/null && echo "Global: \$m"; done
 for m in ${modules}; do perl -I/home/test/perl5/lib/perl5 -M\$m -e1 2>/dev/null && echo "Local: \$m"; done
@@ -77,8 +90,16 @@ echo "--- .testrc"; cat /home/test/.testrc
 echo "--- end"
 EOS
   return run_in_container($image,
-    "-v ${script}:/opt/update_config:ro -v ${config_dir}:/opt/config:ro",
+    "-v ${program}:/opt/update_config:ro -v ${config_dir}:/opt/config:ro",
     $container_script);
+}
+
+# Returns the files written outside of the home directory of the user, as
+# reported by run_test.
+sub files_outside {
+  my ($out) = @_;
+  my ($files) = $out =~ m/^---[ ]outside\n(.*?)^---[ ]man\n/msx;
+  return $files;
 }
 
 subtest 'installed globally' => sub {
@@ -108,8 +129,69 @@ subtest 'standalone copy' => sub {
   like($out, qr/^---[ ]sudo\n^Local:/mx, 'sudo not invoked');
   unlike($out, qr/^Global:/mx, 'modules not installed globally');
   like($out, qr/^Local:[ ]File::Slurp$/mx, 'module installed with local::lib');
+  is(files_outside($out), q{}, 'nothing written outside of the home directory');
+  like($out, qr/^File::Slurp[.]/mx, 'man pages installed with local::lib');
   my ($testrc) = $out =~ m/^---[ ][.]testrc\n(.*?)^---[ ]end\n/msx;
   is($testrc, guarded("some content\n"), 'fragment applied');
+};
+
+subtest 'standalone copy, with cpan' => sub {
+  my $out = run_test('/home/test/update_config', undef, 'rm /usr/local/bin/cpanm');
+  unlike($out, qr/^Script[ ]failed$/mx, 'script success') or diag($out);
+  like(
+    $out,
+    qr/^Installing[ ]module[ ]'File::Slurp'[ ]with[ ]cpan$/mx,
+    'modules installed with cpan');
+  unlike($out, qr/^Sudo[ ]was[ ]invoked$/mx, 'sudo not invoked');
+  unlike($out, qr/^Global:/mx, 'modules not installed globally');
+  like($out, qr/^Local:[ ]File::Slurp$/mx, 'module installed with local::lib');
+  is(files_outside($out), q{}, 'nothing written outside of the home directory');
+  like($out, qr/^File::Slurp[.]/mx, 'man pages installed with local::lib');
+};
+
+my $r = $t->run('--pack');
+is($r->{exit}, 0, '--pack: success');
+my $packed = catfile($t->root, 'packed.pl');
+UpdateConfigTest::write_file($packed, $r->{stdout});
+
+subtest 'packed script with --no-root' => sub {
+  # As with `ssh host perl -- - --no-root`.
+  my $out =
+      run_test('/home/test/packed.pl', 'perl - --no-root < /home/test/packed.pl', undef, $packed);
+  unlike($out, qr/^Script[ ]failed$/mx, 'script success') or diag($out);
+  like($out, qr/^Successfully[ ]loaded[ ]local::lib$/mx, 'local::lib loaded');
+  unlike($out, qr/^Sudo[ ]was[ ]invoked$/mx, 'sudo not invoked');
+  like($out, qr/^Local:[ ]File::Slurp$/mx, 'module installed with local::lib');
+  is(files_outside($out), q{}, 'nothing written outside of the home directory');
+  my ($testrc) = $out =~ m/^---[ ][.]testrc\n(.*?)^---[ ]end\n/msx;
+  is($testrc, guarded("some content\n"), 'fragment applied');
+};
+
+subtest 'failed installation with --no-root' => sub {
+  # The modules can't be found by cpanm.
+  my $out = run_test(
+    '/home/test/packed.pl',
+    'PERL_CPANM_OPT="--mirror file:///none --mirror-only" perl - --no-root < /home/test/packed.pl',
+    undef,
+    $packed);
+  like($out, qr/^Script[ ]failed$/mx, 'script failure');
+  like(
+    $out,
+    qr/^Cannot[ ]install[ ]module[ ]'Data::Section::Simple'[ ]with[ ]cpanm[ ][(]not[ ]retried[ ]with[ ]sudo/mx,
+    'failure reported');
+  unlike($out, qr/^Installing[ ].*[ ]with[ ]sudo/mx, 'no installation with sudo');
+  unlike($out, qr/^Sudo[ ]was[ ]invoked$/mx, 'sudo not invoked');
+};
+
+subtest 'installed globally, with --no-root' => sub {
+  my $out =
+      run_test('/usr/local/bin/update_config', 'perl /usr/local/bin/update_config --no-root');
+  like($out, qr/^Script[ ]failed$/mx, 'script failure');
+  like(
+    $out,
+    qr/^Cannot[ ]install[ ]module[ ]'Data::Section::Simple'[ ]without[ ]sudo,[ ]which[ ]is[ ]disabled[ ]by[ ]--no-root/mx,
+    'failure reported');
+  unlike($out, qr/^Sudo[ ]was[ ]invoked$/mx, 'sudo not invoked');
 };
 
 done_testing;

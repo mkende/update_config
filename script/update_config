@@ -84,9 +84,35 @@ sub is_installed_globally {
 # Whether local::lib is loaded (undef until we try to load it).
 my $has_local_lib;
 
+# Quotes the given path for the PERL_MM_OPT and PERL_MB_OPT variables, which
+# are split on spaces.
+sub quote_install_path {
+  my ($path) = @_;
+  return $path =~ m/\s/ ? qq{"${path}"} : $path;
+}
+
+# Sets the install directories of the man pages, in the PERL_MM_OPT and
+# PERL_MB_OPT environment variables set by local::lib, to the local::lib
+# directory, so that no files are installed outside of it (otherwise, some
+# distributions install their man pages in the system directories).
+sub set_local_lib_man_dirs {
+  my ($base) = split /\Q$Config{path_sep}\E/, $ENV{PERL_LOCAL_LIB_ROOT} // '';
+  return if not $base;
+  my %dirs = map { ($_ => quote_install_path(catfile($base, 'man', "man$_"))) } 1, 3;
+  my @mm_opts;
+  for my $section (1, 3) {
+    push @mm_opts, map { "INSTALL${_}MAN${section}DIR=$dirs{$section}" } '', 'SITE', 'VENDOR';
+  }
+  my @mb_opts = ("--install_path bindoc=$dirs{1}", "--install_path libdoc=$dirs{3}");
+  $ENV{PERL_MM_OPT} = join ' ', grep { defined && $_ ne '' } $ENV{PERL_MM_OPT}, @mm_opts;
+  $ENV{PERL_MB_OPT} = join ' ', grep { defined && $_ ne '' } $ENV{PERL_MB_OPT}, @mb_opts;
+  return;
+}
+
 # Installs the given module with cpanm if it is available, or cpan otherwise.
 # The module is installed in the local::lib directory if local::lib is loaded,
-# or system-wide otherwise, using sudo when needed.
+# or system-wide otherwise, using sudo when needed (except with --no-root, in
+# which case the program dies if the module can't be installed without it).
 sub install_module {
   my ($m) = @_;
   local $ENV{PERL_MM_USE_DEFAULT} = 1;  # Used so that cpan don’t ask questions.
@@ -99,13 +125,20 @@ sub install_module {
       and not $has_local_lib
       and not -w $Config{installsitelib}
       and $EUID != 0;
-  my @cmd = $cpanm ? ($cpanm) : ('cpan', ($has_local_lib ? '-I' : ()), '-i');
+  # The environment of local::lib is already set (and `cpan -I` would reset
+  # the variables changed by set_local_lib_man_dirs).
+  my @cmd = $cpanm ? ($cpanm) : qw(cpan -i);
   my $name = $cpanm ? 'cpanm' : 'cpan';
   if (!$need_sudo) {
     print "Installing module '${m}' with ${name}\n" unless $flags{silent};
     return if system(@cmd, $m) == 0;
+    die "Cannot install module '$m' with ${name} (not retried with sudo because of --no-root).\n"
+        if $flags{'no-root'};
     $need_sudo = 1;
   }
+  die "Cannot install module '$m' without sudo, which is disabled by --no-root (install "
+      ."local::lib or the module itself).\n"
+      if $flags{'no-root'};
   # sudo resets the environment, so the module is installed system-wide even
   # if local::lib is loaded.
   print "Installing module '${m}' with sudo ${name}\n" unless $flags{silent};
@@ -133,6 +166,7 @@ sub load_module {
     $has_local_lib = try_load('local::lib');
     if ($has_local_lib) {
       print "Successfully loaded local::lib\n" unless $flags{silent};
+      set_local_lib_man_dirs();
       # We try to load the module again, in case it was already installed locally.
       return 1 if try_load($m, @args);
     } else {
@@ -1363,8 +1397,10 @@ they are missing (some of them only when they are first needed), with
 C<cpanm> if it is available, or C<cpan> otherwise. If the program is installed
 in the directories of the Perl installation (e.g. with C<sudo cpanm>), the
 modules are installed there too, using C<sudo> if needed. Otherwise, they are
-installed with L<local::lib> if that module is available, or system-wide (using
-C<sudo> if needed).
+installed with L<local::lib> if that module is available (including their man
+pages, so that nothing is installed outside of the L<local::lib> directory), or
+system-wide (using C<sudo> if needed). With the C<--no-root> option, C<sudo> is
+never used and the program fails if a module can't be installed without it.
 
 =head1 OPTIONS
 
@@ -1384,7 +1420,8 @@ abbreviated down to a single character.
   --root   Install only the configuration fragments that are marked as
            'NEED ROOT'.
 
-  --no-root  Do not attempt to install the 'NEED ROOT' fragments.
+  --no-root  Do not attempt to install the 'NEED ROOT' fragments, nor to
+           install the missing modules with sudo.
 
   --force  Overwrite the targets of the 'ENTIRE FILE' fragments even if they
            were modified since they were last written by the program, and
