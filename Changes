@@ -1,6 +1,6 @@
 Revision history for Perl distribution App-UpdateConfig
 
-1.08 - ????-??-??
+1.08 - 2026-11-14
  - Add a SKIP directive to skip a fragment.
  - With --no-root, never use sudo to install the missing modules.
  - Load local::lib from ~/perl5 when it is not in the default module path
