@@ -91,22 +91,26 @@ sub quote_install_path {
   return $path =~ m/\s/ ? qq{"${path}"} : $path;
 }
 
-# Sets the install directories of the man pages, in the PERL_MM_OPT and
-# PERL_MB_OPT environment variables set by local::lib, to the local::lib
-# directory, so that no files are installed outside of it (otherwise, some
-# distributions install their man pages in the system directories).
-sub set_local_lib_man_dirs {
+# Returns the PERL_MM_OPT and PERL_MB_OPT environment variables (as a list of
+# names and values) to install the modules with local::lib: the ones set by
+# local::lib, with the install directories of the man pages set to the
+# local::lib directory too, so that no files are installed outside of it
+# (otherwise, some distributions install their man pages in the system
+# directories). Returns an empty list if local::lib did not set its directory.
+sub get_local_lib_install_env {
   my ($base) = split /\Q$Config{path_sep}\E/, $ENV{PERL_LOCAL_LIB_ROOT} // '';
   return if not $base;
-  my %dirs = map { ($_ => quote_install_path(catfile($base, 'man', "man$_"))) } 1, 3;
-  my @mm_opts;
-  for my $section (1, 3) {
-    push @mm_opts, map { "INSTALL${_}MAN${section}DIR=$dirs{$section}" } '', 'SITE', 'VENDOR';
+  # The Module::Build names of the man pages directories.
+  my %build_names = (man1 => 'bindoc', man3 => 'libdoc');
+  my (@mm_opts, @mb_opts);
+  for my $man (sort keys %build_names) {
+    my $dir = quote_install_path(catfile($base, 'man', $man));
+    push @mm_opts, map { "INSTALL${_}".uc($man)."DIR=${dir}" } '', 'SITE', 'VENDOR';
+    push @mb_opts, "--install_path $build_names{$man}=${dir}";
   }
-  my @mb_opts = ("--install_path bindoc=$dirs{1}", "--install_path libdoc=$dirs{3}");
-  $ENV{PERL_MM_OPT} = join ' ', grep { defined && $_ ne '' } $ENV{PERL_MM_OPT}, @mm_opts;
-  $ENV{PERL_MB_OPT} = join ' ', grep { defined && $_ ne '' } $ENV{PERL_MB_OPT}, @mb_opts;
-  return;
+  return (
+    PERL_MM_OPT => join(' ', grep { defined && $_ ne '' } $ENV{PERL_MM_OPT}, @mm_opts),
+    PERL_MB_OPT => join(' ', grep { defined && $_ ne '' } $ENV{PERL_MB_OPT}, @mb_opts));
 }
 
 # Loads local::lib, from the default @INC or from its default directory
@@ -117,23 +121,17 @@ sub load_local_lib {
   # local::lib prints some configuration and exit the program when $0 is '-' (meant for `perl -Mlocal::lib`).
   local $0 = $0 eq '-' ? 'fakename.pl' : $0;
   return 1 if try_load('local::lib');
-  my $home = $ENV{HOME} // (getpwuid $EUID)[7];
-  return 0 if not defined $home;
-  my $dir = catfile($home, 'perl5', 'lib', 'perl5');
+  return 0 if not defined $ENV{HOME};
+  my $dir = catfile($ENV{HOME}, 'perl5', 'lib', 'perl5');
   return 0 if not -f catfile($dir, 'local', 'lib.pm');
   unshift @INC, $dir;
   return try_load('local::lib');
 }
 
-# Loads local::lib (see load_local_lib) and, if it is available, prepares the
-# installation of the modules in its directory. Sets and returns
-# $has_local_lib.
+# Loads local::lib (see load_local_lib). Sets and returns $has_local_lib.
 sub setup_local_lib {
   $has_local_lib = load_local_lib();
-  if ($has_local_lib) {
-    print "Successfully loaded local::lib\n" unless $flags{silent};
-    set_local_lib_man_dirs();
-  }
+  print "Successfully loaded local::lib\n" if $has_local_lib and not $flags{silent};
   return $has_local_lib;
 }
 
@@ -143,7 +141,9 @@ sub setup_local_lib {
 # which case the program dies if the module can't be installed without it).
 sub install_module {
   my ($m) = @_;
-  local $ENV{PERL_MM_USE_DEFAULT} = 1;  # Used so that cpan don’t ask questions.
+  # PERL_MM_USE_DEFAULT is used so that cpan don’t ask questions.
+  my %env = (PERL_MM_USE_DEFAULT => 1, $has_local_lib ? get_local_lib_install_env() : ());
+  local @ENV{keys %env} = values %env;
   my $cpanm = find_program('cpanm');
   # When it can't write in the system directories, cpanm installs the modules
   # in ~/perl5, where we would not find them without local::lib. And when we
@@ -154,7 +154,7 @@ sub install_module {
       and not -w $Config{installsitelib}
       and $EUID != 0;
   # The environment of local::lib is already set (and `cpan -I` would reset
-  # the variables changed by set_local_lib_man_dirs).
+  # the variables from get_local_lib_install_env).
   my @cmd = $cpanm ? ($cpanm) : qw(cpan -i);
   my $name = $cpanm ? 'cpanm' : 'cpan';
   if (!$need_sudo) {
