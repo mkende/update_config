@@ -1,6 +1,6 @@
 Revision history for Perl distribution App-UpdateConfig
 
-1.09 - ????-??-??
+1.09 - 2026-11-24
  - Rename the --diff option to --verbose (-v), as it also updates the files,
    and the --test option to --dry-run.
  - Add a --diff-only option, equivalent to --verbose --dry-run.
