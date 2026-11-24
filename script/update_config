@@ -41,9 +41,11 @@ my @orig_argv;
 BEGIN {
   @orig_argv = @ARGV;
   GetOptions(
-    \%flags, 'silent', 'diff', 'help', 'test', 'list',
-    'root', 'no-root', 'export', 'dir=s', 'pack', 'force'
+    \%flags, 'silent', 'verbose|v', 'help', 'dry-run', 'diff-only',
+    'list', 'root', 'no-root', 'export', 'dir=s', 'pack',
+    'force'
   ) or print_usage(0);
+  $flags{verbose} = $flags{'dry-run'} = 1 if $flags{'diff-only'};
   print_usage(1) if $flags{help};
   print_usage(0) if @ARGV;
   if ($flags{pack} and $0 eq '-') {
@@ -1328,13 +1330,13 @@ sub apply_fragment {
   my ($mode, $in_path, $out_path) = @{$fragment}{qw(mode in_path out_path)};
   my ($before, $old_content, $new_content, $after) = get_contents($fragment);
   # Whether this run is the one that writes this fragment (as root or not).
-  my $can_write = !$flags{test} && !$conf->{need_root} == !$flags{root};
+  my $can_write = !$flags{'dry-run'} && !$conf->{need_root} == !$flags{root};
   if ($old_content eq $new_content and not need_perm_update($out_path, $mode, $conf)) {
     print "Nothing to do for: $display_name\n" unless $flags{silent};
     save_state($fragment) if ($conf->{merge} or $conf->{entire_file}) and $can_write;
     return 0;
   }
-  if ($flags{diff}) {
+  if ($flags{verbose}) {
     my $diff = diff(\$old_content, \$new_content, {CONTEXT => 0});
     print "Diff for: $display_name\n$diff";
   }
@@ -1404,8 +1406,8 @@ remote hosts.
 
 =head1 SYNOPSIS
 
-update_config [--test] [--help] [--diff] [--silent] [--list] [--dir directory]
-[--root|--no-root] [--force] [--export] [--pack]
+update_config [--verbose|-v] [--dry-run] [--diff-only] [--help] [--silent]
+[--list] [--dir directory] [--root|--no-root] [--force] [--export] [--pack]
 
 =head1 DESCRIPTION
 
@@ -1433,15 +1435,22 @@ never used and the program fails if a module can't be installed without it.
 =head1 OPTIONS
 
 The available options for the program are the following. They can all be
-abbreviated down to a single character.
+abbreviated, as long as the abbreviation is not ambiguous (e.g. C<--dry> for
+C<--dry-run>, but C<--d> is ambiguous).
 
-  --diff   Print the difference between the current configuration and what
-           will be written
+  --verbose, -v  Print the difference between the current content of each
+           configuration file and what is written to it. The files are
+           still updated, unless --dry-run is also given.
+
+  --dry-run  Do not modify the configuration files, only report which ones
+           would be updated.
+
+  --diff-only  Print the difference that would be applied to each
+           configuration file, without modifying them. This is the same as
+           --verbose --dry-run.
 
   --silent Do not print the status of the configuration files (except for
            error messages).
-
-  --test   Do not modify the configuration files.
 
   --list   Only print a list of the configuration files and exit.
 

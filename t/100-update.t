@@ -75,10 +75,18 @@ our $VERSION = 0.01;
   my $t = UpdateConfigTest->new;
   $t->add_fragment('file', "new\n");
   $t->write_home_file('file', guarded("old\n"));
-  my $r = $t->run('--test', '--diff');
-  is($t->read_home_file('file'), guarded("old\n"), '--test: file unchanged');
-  like($r->{stdout}, qr/^Updated:[ ]file$/mx, '--test: reported as updated');
-  like($r->{stdout}, qr/^Diff[ ]for:[ ]file\n.*^-old\n\+new$/msx, '--diff: diff printed');
+  my $r = $t->run('--dry-run');
+  is($t->read_home_file('file'), guarded("old\n"), '--dry-run: file unchanged');
+  like($r->{stdout}, qr/^Updated:[ ]file$/mx, '--dry-run: reported as updated');
+  unlike($r->{stdout}, qr/^Diff[ ]for:/mx, '--dry-run: no diff printed');
+
+  $r = $t->run('--diff-only');
+  is($t->read_home_file('file'), guarded("old\n"), '--diff-only: file unchanged');
+  like($r->{stdout}, qr/^Diff[ ]for:[ ]file\n.*^-old\n\+new$/msx, '--diff-only: diff printed');
+
+  $r = $t->run('-v');
+  like($r->{stdout}, qr/^Diff[ ]for:[ ]file\n.*^-old\n\+new$/msx, '-v: diff printed');
+  is($t->read_home_file('file'), guarded("new\n"), '-v: file updated');
 }
 
 {
