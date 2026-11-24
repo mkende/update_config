@@ -44,8 +44,8 @@ our $VERSION = 0.01;
   $r = $t->run('--silent');
   like($r->{stderr}, qr/^Skipping[ ]file/mx, 'modified target: reported with --silent');
 
-  $r = $t->run('--test');
-  like($r->{stderr}, qr/^Skipping[ ]file/mx, 'modified target: reported with --test');
+  $r = $t->run('--dry-run');
+  like($r->{stderr}, qr/^Skipping[ ]file/mx, 'modified target: reported with --dry-run');
 
   $t->add_fragment('other', "other 3\n");
   $r = $t->run('--force');
@@ -62,9 +62,9 @@ our $VERSION = 0.01;
 
   $t->write_home_file('file', "local change\n");
   $t->add_fragment('file', "ENTIRE FILE\nv3 ter\n");
-  $r = $t->run('--force', '--test');
-  like($r->{stdout}, qr/^Updated:[ ]file[ ][(]forced[)]$/mx, '--force with --test: reported');
-  is($t->read_home_file('file'), "local change\n", '--force with --test: not overwritten');
+  $r = $t->run('--force', '--dry-run');
+  like($r->{stdout}, qr/^Updated:[ ]file[ ][(]forced[)]$/mx, '--force with --dry-run: reported');
+  is($t->read_home_file('file'), "local change\n", '--force with --dry-run: not overwritten');
   $r = $t->run('--force', '--silent');
   is($r->{stdout}, '', '--force with --silent: nothing reported');
   is($t->read_home_file('file'), "v3 ter\n", '--force with --silent: overwritten');

@@ -99,9 +99,9 @@ subtest 'TOML: state saved when there is nothing to do' => sub {
   my $t = UpdateConfigTest->new;
   $t->write_home_file('app.toml', qq{a = 1\nb = 2\n});
   $t->add_fragment('app', qq{FILENAME app.toml\nMERGE toml\n\na = 1\nb = 2\n});
-  my $r = $t->run('--test');
+  my $r = $t->run('--dry-run');
   like($r->{stdout}, qr/^Nothing[ ]to[ ]do[ ]for:[ ]app[.]toml$/mx, 'nothing to do');
-  is([list_dir($t->home_path('.local/state/update_config'))], [], '--test: no state saved');
+  is([list_dir($t->home_path('.local/state/update_config'))], [], '--dry-run: no state saved');
   $t->run();
   $t->add_fragment('app', qq{FILENAME app.toml\nMERGE toml\n\na = 1\n});
   $t->run();
@@ -179,13 +179,13 @@ subtest 'JSON' => sub {
   $t->write_home_file('app.json', qq{{"z": [1, 2], "b": {"c": true},}\n});
   $t->add_fragment('app',
     qq{FILENAME app.json\nMERGE json\n\n{"b": {"d": null}, "z": [2, 3]}\n});
-  my $r = $t->run('--diff');
+  my $r = $t->run('--verbose');
   is(
     $t->read_home_file('app.json'),
     qq{{\n  "b": {\n    "c": true,\n    "d": null\n  },\n  "z": [\n    2,\n    3\n  ]\n}\n},
     'merged, with sorted keys, and arrays of scalars replaced');
-  like($r->{stdout}, qr/^[+]\s+"d":[ ]null$/mx, '--diff: added value printed');
-  unlike($r->{stdout}, qr/"b"/x, '--diff: unchanged lines not printed');
+  like($r->{stdout}, qr/^[+]\s+"d":[ ]null$/mx, '--verbose: added value printed');
+  unlike($r->{stdout}, qr/"b"/x, '--verbose: unchanged lines not printed');
 };
 
 subtest 'Upper case format' => sub {

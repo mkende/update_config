@@ -28,13 +28,13 @@ our $VERSION = 0.01;
   like($r->{stdout}, qr/^Nothing[ ]to[ ]do[ ]for:[ ][.]link$/mx, 'same link: nothing to do');
 
   $t->add_fragment('dot_link', "SYMLINK ~/dest/two\n");
-  $r = $t->run('--test', '--diff');
+  $r = $t->run('--dry-run', '--verbose');
   my $new_dest = $t->home_path('dest/two');
   like(
     $r->{stdout},
     qr/^--> [ ] dest\/one$ .* ^\+-> [ ] \Q$new_dest\E$/msx,
-    '--diff: old and new destinations printed');
-  is(readlink $link, 'dest/one', '--test: link not changed');
+    '--verbose: old and new destinations printed');
+  is(readlink $link, 'dest/one', '--dry-run: link not changed');
 
   $r = $t->run();
   is(readlink $link, $new_dest, 'other link: replaced, with ~ expanded');
